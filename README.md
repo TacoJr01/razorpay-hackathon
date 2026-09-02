@@ -23,7 +23,7 @@ flowchart LR
 
     subgraph Backend [Hono]
         ChatRoute[POST /chat]
-        OrdersRoute[POST /orders/:id/confirm|decline]
+        OrdersRoute["POST /orders/:id/confirm or decline"]
         AuditRoute[GET /audit, /audit/stream, /audit/verify]
         Loop[agent/loop.ts<br/>tool-calling loop, Vercel AI SDK]
         Tools[agent/tools.ts<br/>searchCatalog, getProduct,<br/>getRecommendations, proposeDiscount,<br/>checkOrderBounds, checkOrderGate, placeOrder]
