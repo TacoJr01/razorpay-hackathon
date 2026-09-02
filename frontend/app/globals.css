@@ -1,14 +1,18 @@
 :root {
-  --bg: #0f1420;
-  --panel: #161d2b;
-  --panel-2: #1c2434;
-  --border: #2a3448;
-  --text: #e6ebf5;
-  --text-dim: #93a0b8;
-  --accent: #4f8cff;
-  --ok: #35c98f;
-  --fail: #ff5d6c;
-  --warn: #f5a623;
+  --bg: #ffffff;
+  --panel: #ffffff;
+  --panel-2: #f6f6f4;
+  --border: #e3e3e0;
+  --text: #111110;
+  --text-dim: #6e6e6a;
+  --accent: #111110;
+  --accent-contrast: #ffffff;
+  --ok: #1a7f37;
+  --ok-bg: #f0f7f1;
+  --fail: #b3261e;
+  --fail-bg: #fbf0ef;
+  --warn: #8a5a00;
+  --warn-bg: #faf4e8;
 }
 
 * {
@@ -22,7 +26,8 @@ body {
   height: 100%;
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
 #__next,
@@ -40,7 +45,7 @@ main {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 20px;
+  padding: 16px 24px;
   border-bottom: 1px solid var(--border);
   background: var(--panel);
 }
@@ -49,7 +54,8 @@ main {
   font-size: 15px;
   font-weight: 600;
   margin: 0;
-  letter-spacing: 0.02em;
+  letter-spacing: -0.01em;
+  color: var(--text);
 }
 
 .topbar .badges {
@@ -62,8 +68,10 @@ main {
 .badge {
   border: 1px solid var(--border);
   border-radius: 999px;
-  padding: 3px 10px;
-  background: var(--panel-2);
+  padding: 4px 12px;
+  background: var(--panel);
+  color: var(--text-dim);
+  font-weight: 500;
 }
 
 .main-grid {
@@ -85,7 +93,7 @@ main {
 }
 
 .panel-header {
-  padding: 10px 16px;
+  padding: 14px 20px;
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
@@ -94,23 +102,24 @@ main {
 }
 
 .panel-header h2 {
-  font-size: 13px;
+  font-size: 12px;
   margin: 0;
   color: var(--text-dim);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
+  font-weight: 600;
 }
 
 .panel-body {
   flex: 1;
   overflow-y: auto;
-  padding: 14px 16px;
+  padding: 18px 20px;
 }
 
 /* Chat */
 
 .msg {
-  margin-bottom: 12px;
+  margin-bottom: 14px;
   max-width: 88%;
 }
 
@@ -121,77 +130,81 @@ main {
 
 .msg .bubble {
   display: inline-block;
-  padding: 9px 13px;
-  border-radius: 12px;
+  padding: 10px 15px;
+  border-radius: 16px;
   font-size: 13.5px;
-  line-height: 1.45;
+  line-height: 1.5;
   white-space: pre-wrap;
+  text-align: left;
 }
 
 .msg.user .bubble {
   background: var(--accent);
-  color: #fff;
-  border-bottom-right-radius: 3px;
+  color: var(--accent-contrast);
+  border-bottom-right-radius: 4px;
 }
 
 .msg.assistant .bubble {
-  background: var(--panel-2);
+  background: var(--panel);
+  color: var(--text);
   border: 1px solid var(--border);
-  border-bottom-left-radius: 3px;
+  border-bottom-left-radius: 4px;
 }
 
 .trace {
-  margin: 6px 0 12px;
+  margin: 8px 0 14px;
   font-size: 11.5px;
   color: var(--text-dim);
   border-left: 2px solid var(--border);
-  padding-left: 10px;
+  padding-left: 12px;
 }
 
 .trace-line {
-  margin-bottom: 3px;
+  margin-bottom: 4px;
   font-family: 'SF Mono', ui-monospace, Menlo, monospace;
 }
 
 .trace-line .tag {
-  color: var(--accent);
+  color: var(--text);
   font-weight: 600;
   margin-right: 6px;
 }
 
 .gate-card {
-  margin: 10px 0;
-  border: 1px solid var(--warn);
-  background: rgba(245, 166, 35, 0.08);
-  border-radius: 10px;
-  padding: 12px 14px;
+  margin: 12px 0;
+  border: 1px solid var(--text);
+  background: var(--panel);
+  border-radius: 14px;
+  padding: 16px 18px;
   font-size: 13px;
+  box-shadow: 0 2px 10px rgba(17, 17, 16, 0.06);
 }
 
 .gate-card h3 {
-  margin: 0 0 6px;
-  font-size: 12.5px;
-  color: var(--warn);
+  margin: 0 0 8px;
+  font-size: 11.5px;
+  color: var(--text);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
+  font-weight: 700;
 }
 
 .gate-card table {
   width: 100%;
   border-collapse: collapse;
-  margin: 8px 0;
+  margin: 10px 0;
   font-size: 12.5px;
 }
 
 .gate-card td {
-  padding: 3px 0;
+  padding: 5px 0;
   border-bottom: 1px solid var(--border);
 }
 
 .gate-actions {
   display: flex;
   gap: 8px;
-  margin-top: 10px;
+  margin-top: 12px;
 }
 
 button {
@@ -201,42 +214,50 @@ button {
 
 .btn {
   border: 1px solid var(--border);
-  background: var(--panel-2);
+  background: var(--panel);
   color: var(--text);
-  border-radius: 7px;
-  padding: 7px 14px;
+  border-radius: 999px;
+  padding: 8px 18px;
   font-size: 12.5px;
+  font-weight: 500;
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 
 .btn:hover {
-  border-color: var(--accent);
+  border-color: var(--text);
 }
 
 .btn.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-contrast);
 }
 
 .btn.primary:hover {
-  filter: brightness(1.08);
+  background: #2b2b28;
+  border-color: #2b2b28;
 }
 
 .btn.danger {
-  background: transparent;
-  border-color: var(--fail);
+  background: var(--panel);
+  border-color: var(--border);
   color: var(--fail);
 }
 
+.btn.danger:hover {
+  border-color: var(--fail);
+  background: var(--fail-bg);
+}
+
 .btn:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: default;
 }
 
 .chat-input {
   display: flex;
-  gap: 8px;
-  padding: 12px 16px;
+  gap: 10px;
+  padding: 14px 20px;
   border-top: 1px solid var(--border);
   background: var(--panel);
 }
@@ -245,22 +266,27 @@ button {
   flex: 1;
   background: var(--panel-2);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 9px 12px;
+  border-radius: 999px;
+  padding: 10px 16px;
   color: var(--text);
   font-size: 13.5px;
 }
 
+.chat-input input::placeholder {
+  color: var(--text-dim);
+}
+
 .chat-input input:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--text);
+  background: var(--panel);
 }
 
 .suggestions {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  padding: 0 16px 10px;
+  padding: 0 20px 12px;
 }
 
 .suggestion {
@@ -268,12 +294,12 @@ button {
   color: var(--text-dim);
   border: 1px solid var(--border);
   border-radius: 999px;
-  padding: 4px 10px;
-  background: var(--panel-2);
+  padding: 5px 12px;
+  background: var(--panel);
 }
 
 .suggestion:hover {
-  border-color: var(--accent);
+  border-color: var(--text);
   color: var(--text);
 }
 
@@ -287,27 +313,31 @@ button {
 
 .verify-result {
   font-size: 11.5px;
-  padding: 3px 10px;
+  font-weight: 500;
+  padding: 4px 12px;
   border-radius: 999px;
 }
 
 .verify-result.valid {
   color: var(--ok);
   border: 1px solid var(--ok);
+  background: var(--ok-bg);
 }
 
 .verify-result.invalid {
   color: var(--fail);
   border: 1px solid var(--fail);
+  background: var(--fail-bg);
 }
 
 .entry {
   border: 1px solid var(--border);
-  border-radius: 9px;
-  padding: 9px 11px;
-  margin-bottom: 8px;
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
   font-size: 12px;
-  background: var(--panel-2);
+  background: var(--panel);
+  box-shadow: 0 1px 3px rgba(17, 17, 16, 0.03);
 }
 
 .entry.broken {
@@ -319,14 +349,14 @@ button {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 4px;
+  margin-bottom: 5px;
 }
 
 .entry-action {
   font-weight: 600;
   font-family: 'SF Mono', ui-monospace, Menlo, monospace;
   font-size: 11px;
-  color: var(--accent);
+  color: var(--text);
 }
 
 .entry-time {
@@ -336,8 +366,8 @@ button {
 
 .entry-desc {
   color: var(--text);
-  line-height: 1.4;
-  margin-bottom: 5px;
+  line-height: 1.45;
+  margin-bottom: 6px;
 }
 
 .entry-meta {
@@ -349,28 +379,32 @@ button {
 
 .pill {
   border-radius: 999px;
-  padding: 2px 8px;
+  padding: 2px 9px;
   border: 1px solid var(--border);
   color: var(--text-dim);
+  background: var(--panel-2);
 }
 
 .pill.pass {
   color: var(--ok);
   border-color: var(--ok);
+  background: var(--ok-bg);
 }
 
 .pill.fail {
   color: var(--fail);
   border-color: var(--fail);
+  background: var(--fail-bg);
 }
 
 .pill.gate {
   color: var(--warn);
   border-color: var(--warn);
+  background: var(--warn-bg);
 }
 
 .entry-hash {
-  margin-top: 5px;
+  margin-top: 6px;
   font-family: 'SF Mono', ui-monospace, Menlo, monospace;
   font-size: 9.5px;
   color: var(--text-dim);
