@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { AgentStreamEvent, OrderDraft } from '@b2b-agent/shared';
-import { confirmOrder, declineOrder, streamChat } from '../lib/api';
+import { confirmOrder, declineOrder, getSessionId, streamChat } from '../lib/api';
 
 type TraceEvent =
   | { kind: 'tool_call'; name: string; args: unknown }
@@ -28,18 +28,7 @@ function formatCompact(value: unknown): string {
   return str.length > 160 ? str.slice(0, 160) + '…' : str;
 }
 
-function getSessionId(): string {
-  if (typeof window === 'undefined') return 'server';
-  const key = 'b2b-agent-session-id';
-  let id = window.localStorage.getItem(key);
-  if (!id) {
-    id = `sess_${Math.random().toString(36).slice(2, 10)}`;
-    window.localStorage.setItem(key, id);
-  }
-  return id;
-}
-
-export function ChatPanel() {
+export function ChatPanel({ onTurnComplete }: { onTurnComplete?: () => void } = {}) {
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   const [current, setCurrent] = useState<TurnItem[] | null>(null);
   const [input, setInput] = useState('');
@@ -128,6 +117,7 @@ export function ChatPanel() {
       setCurrent(null);
       setTimeline((prev) => [...prev, { role: 'assistant', items: finalItems }]);
       setSending(false);
+      onTurnComplete?.();
     }
   }
 
@@ -161,6 +151,7 @@ export function ChatPanel() {
         prev.map((entry, i) => (i === turnIndex && entry.role === 'assistant' ? { ...entry, items: [...entry.items, note] } : entry)),
       );
     }
+    onTurnComplete?.();
   }
 
   function renderTurnItems(items: TurnItem[], turnIndex: number | null) {

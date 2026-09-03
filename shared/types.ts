@@ -114,14 +114,39 @@ export type AgentStreamEvent =
   | { type: 'error'; message: string };
 
 // ---------------------------------------------------------------------------
+// Trust-tier gate limits (computed per-buyer from their own order history)
+// ---------------------------------------------------------------------------
+
+export interface BuyerLimits {
+  valueLimit: number;
+  qtyLimit: number;
+  completedOrders: number;
+  largestOrderValue: number;
+  largestLineQty: number;
+  trustApplied: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Bound / gate configuration (hard-coded thresholds, not LLM-adjustable)
 // ---------------------------------------------------------------------------
 
 export const BOUND_CONFIG = {
-  /** Minimum margin over unit_cost that any quoted/discounted price must retain. */
+  /** Minimum margin over unit_cost that any quoted/discounted price must retain. Never adjusted by trust. */
   MIN_MARGIN_PCT: 0.15,
-  /** Any order whose total exceeds this (INR) requires explicit user confirmation. */
+  /** Base auto-approval limit (INR) for a buyer with no trust history yet. */
   GATE_ORDER_VALUE_INR: 200_000,
-  /** Any single line item whose quantity exceeds this requires explicit user confirmation. */
+  /** Base auto-approval limit (line quantity) for a buyer with no trust history yet. */
   GATE_QUANTITY_UNITS: 500,
+  /** A buyer's auto-approve ceiling never exceeds this multiple of their own largest completed order. */
+  GATE_TRUST_MULTIPLIER: 3,
+  /** Minimum completed (placed) orders before trust adjusts a buyer's gate ceiling at all. */
+  GATE_TRUST_MIN_ORDERS: 3,
+  /** Absolute value ceiling (INR) no amount of trust can exceed. */
+  GATE_VALUE_ABSOLUTE_CAP_INR: 1_000_000,
+  /** Absolute quantity ceiling no amount of trust can exceed. */
+  GATE_QTY_ABSOLUTE_CAP: 2_000,
+  /** Orders above this total (INR) require a valid buyer GSTIN on file, regardless of trust tier. */
+  GST_REQUIRED_ABOVE_INR: 50_000,
+  /** How long a negotiated quote/draft remains valid before it must be re-quoted. */
+  QUOTE_TTL_MINUTES: 15,
 } as const;

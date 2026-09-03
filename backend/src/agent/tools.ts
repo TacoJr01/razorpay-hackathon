@@ -4,6 +4,8 @@ import { getAllProducts, getProductById, getRelatedProducts, searchProducts } fr
 import { toPublicProduct } from '@b2b-agent/shared';
 import { appendAuditEntry } from '../audit/auditService.js';
 import { proposeDiscount, checkOrderBounds, checkOrderGate, executePlacement } from './actions.js';
+import { isValidGSTIN } from './gstin.js';
+import { setBuyerGSTIN } from './buyerProfile.js';
 
 /**
  * Every tool below is one inspectable step in the pipeline:
@@ -91,7 +93,7 @@ export function buildTools(buyerId: string) {
 
     checkOrderGate: tool({
       description:
-        'Gate-check step: run only after checkOrderBounds reports every line passing. Re-validates bounds itself, computes the order total, and decides whether it exceeds the auto-approval thresholds (order value or per-line quantity). If gateTriggered is true, you MUST stop and tell the buyer you are waiting for their explicit confirmation in the UI - do NOT call placeOrder in that case, it will be refused. If gateTriggered is false, you may call placeOrder with the returned draftId.',
+        'Gate-check step: run only after checkOrderBounds reports every line passing. Re-validates bounds itself, computes the order total, and decides whether it exceeds this specific buyer\'s auto-approval limits (order value, per-line quantity - both computed from that buyer\'s own order history via trust.ts, not a flat number - and separately, whether a GSTIN is required and missing for a large order). If gateTriggered is true, you MUST stop and tell the buyer you are waiting for their explicit confirmation in the UI - do NOT call placeOrder in that case, it will be refused. If gateTriggered is false, you may call placeOrder with the returned draftId.',
       inputSchema: z.object({
         lines: z.array(
           z.object({
@@ -122,6 +124,27 @@ export function buildTools(buyerId: string) {
         'Act step: place the order for a draft that has already passed checkOrderGate with gateTriggered=false. This calls the real Razorpay test-mode Orders API. If the draft was gated and not yet confirmed by the buyer in the UI, this call is refused in code (not just discouraged) - do not attempt it for gated orders.',
       inputSchema: z.object({ draftId: z.string() }),
       execute: async ({ draftId }) => executePlacement(draftId),
+    }),
+
+    provideGSTIN: tool({
+      description:
+        'Record a buyer\'s GSTIN for this session. Call this whenever the buyer supplies a GST number, especially when discussing an order that looks like it will exceed the GSTIN-required threshold. Validates the real 15-character format and checksum in code - a fabricated or mistyped number is rejected, not trusted.',
+      inputSchema: z.object({ gstin: z.string().describe('The GSTIN as given by the buyer, e.g. 27AAPFU0939F1ZV') }),
+      execute: async ({ gstin }) => {
+        const result = isValidGSTIN(gstin);
+        appendAuditEntry({
+          actionType: 'gstin_provided',
+          description: result.reason,
+          boundChecked: 'none',
+          boundResult: result.valid ? 'pass' : 'fail',
+          gateTriggered: false,
+          metadata: { gstinProvided: gstin },
+        });
+        if (result.valid) {
+          await setBuyerGSTIN(buyerId, gstin.trim().toUpperCase());
+        }
+        return result;
+      },
     }),
   };
 }

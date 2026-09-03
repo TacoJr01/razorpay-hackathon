@@ -9,6 +9,7 @@
  * agent/bounds.ts and agent/gates.ts are supposed to do, then dumps the
  * resulting audit trail and re-verifies its hash chain.
  */
+import 'dotenv/config';
 import { proposeDiscount, checkOrderBounds, checkOrderGate, executePlacement, declineDraft } from '../src/agent/actions.js';
 import { listAuditEntries, verifyChain } from '../src/audit/auditService.js';
 import { sqlite } from '../src/db/client.js';

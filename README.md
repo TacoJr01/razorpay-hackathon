@@ -12,6 +12,12 @@ of an agent that's allowed to touch money: **explainable, bounded, gated,
 audited, and able to fail gracefully.** See [Requirement -> code map](#requirement--code-map)
 for exactly where each one lives.
 
+**What's specific to real B2B wholesale, not just a themed retail demo:**
+a buyer's auto-approval *gate* is computed fresh from their own verified
+order history - not a flat number - so trust reduces friction on in-pattern
+orders without ever touching the one bound that actually protects margin.
+See [Trust-tier gate](#trust-tier-gate) below.
+
 ## Architecture
 
 ```mermaid
@@ -24,17 +30,20 @@ flowchart LR
     subgraph Backend [Hono]
         ChatRoute[POST /chat]
         OrdersRoute["POST /orders/:id/confirm or decline"]
+        BuyersRoute["GET /buyers/:id/limits"]
         AuditRoute[GET /audit, /audit/stream, /audit/verify]
         Loop[agent/loop.ts<br/>tool-calling loop, Vercel AI SDK]
-        Tools[agent/tools.ts<br/>searchCatalog, getProduct,<br/>getRecommendations, proposeDiscount,<br/>checkOrderBounds, checkOrderGate, placeOrder]
+        Tools[agent/tools.ts<br/>searchCatalog, getProduct,<br/>getRecommendations, proposeDiscount,<br/>checkOrderBounds, checkOrderGate,<br/>placeOrder, provideGSTIN]
         Actions[agent/actions.ts<br/>bound + gate enforcement,<br/>the ONLY path to Razorpay]
         Bounds[agent/bounds.ts]
         Gates[agent/gates.ts]
+        Trust[agent/trust.ts<br/>per-buyer gate ceiling,<br/>reads orders + verifies chain]
+        GSTIN[agent/gstin.ts<br/>checksum validator]
         AuditSvc[audit/auditService.ts<br/>hash chain]
     end
 
     DB[(SQLite via Drizzle<br/>products / orders / audit_entries)]
-    Cache[(Redis<br/>chat history / order drafts)]
+    Cache[(Redis<br/>chat history / order drafts / buyer GSTIN)]
     LLM[[Claude / GPT-4o-mini / Gemini]]
     RZP[[Razorpay test-mode Orders API]]
 
@@ -43,9 +52,12 @@ flowchart LR
     Loop --> Tools --> Actions
     Actions --> Bounds
     Actions --> Gates
+    Actions --> Trust --> DB
+    Actions --> GSTIN
     Actions --> Cache
     Actions --> AuditSvc --> DB
     Actions --> RZP
+    BuyersRoute --> Trust
     Chat -. gate card: confirm/decline .-> OrdersRoute --> Actions
     Audit <-- SSE --> AuditRoute --> AuditSvc
 ```
@@ -74,29 +86,95 @@ All hard-coded in [`shared/types.ts`](shared/types.ts) as `BOUND_CONFIG`:
 
 | Rule | Value | Kind |
 |---|---|---|
-| Minimum margin over unit cost | 15% (`floor = unit_cost * 1.15`) | **Bound** - hard block, no override |
+| Minimum margin over unit cost | 15% (`floor = unit_cost * 1.15`) | **Bound** - hard block, no override, never adjusted by trust |
 | MOQ | per-product `moq` field | **Bound** |
 | Stock | per-product `stock_qty` field | **Bound** |
 | Catalog scope | SKU must exist | **Bound** |
-| Order value auto-approval limit | ₹2,00,000 | **Gate** - pause for confirmation |
-| Line quantity auto-approval limit | 500 units | **Gate** |
+| Quote validity | 15 minutes; floor/stock re-checked live at confirm time | **Bound** - see [Quote expiry](#quote-expiry) |
+| Order value auto-approval limit | ₹2,00,000 base, buyer-specific above that | **Gate** - see [Trust-tier gate](#trust-tier-gate) |
+| Line quantity auto-approval limit | 500 units base, buyer-specific above that | **Gate** |
+| GSTIN on file | required above ₹50,000, independent of trust | **Gate** - see [GSTIN gate](#gstin-gate) |
 
 A **bound** cannot be satisfied by any input, buyer claim, or retry - the
 code path simply refuses. A **gate** is not a refusal: the order is valid,
-but large enough that it must not fire without an explicit confirm click in
+but large enough (for *this specific buyer*, or missing a compliance
+requirement) that it must not fire without an explicit confirm click in
 the UI.
+
+## Trust-tier gate
+
+The naive version of a gate - and what nearly every comparable submission
+in this track does - is a single flat threshold everyone shares. That has
+a real weakness: it gives no credit to a buyer who has actually transacted
+cleanly before, and a flat *raised* limit is farmable (place a few small
+clean orders, then exploit the earned ceiling in one large hit - "bust-out
+fraud" in payments terms).
+
+[`agent/trust.ts`](backend/src/agent/trust.ts) `computeBuyerLimits` instead
+recomputes a buyer's ceiling fresh, every time, from their own `orders`
+history (`status = 'placed'`) - never a cached or mutable score:
+
+- Fewer than `GATE_TRUST_MIN_ORDERS` (3) completed orders → base limits,
+  identical to today's flat behavior for a brand-new buyer.
+- At or above that: `ceiling = min(absolute_cap, max(base, GATE_TRUST_MULTIPLIER × that buyer's own largest completed order))`.
+  The ceiling is anchored to what the buyer has actually transacted, so
+  farming small orders never unlocks a large flat number - it only ever
+  moves proportionally to their own history, and always caps at an
+  absolute maximum (`GATE_VALUE_ABSOLUTE_CAP_INR` / `GATE_QTY_ABSOLUTE_CAP`)
+  no amount of trust can exceed.
+- **Fail-safe:** `verifyChain()` runs first; if the audit chain doesn't
+  verify, every buyer falls back to base limits regardless of history -
+  trust is never extended on a ledger that can't prove itself intact.
+- The discount floor (`bounds.ts`) is never touched by any of this - trust
+  changes gate *friction* only, never the *bound* that protects margin.
+
+Every computation is itself logged (`buyer_trust_computed` audit entries)
+and exposed live via `GET /buyers/:id/limits`, rendered as a badge in the
+UI - the mechanism is visible, not just internally enforced. Proven end to
+end, including the anti-bust-out case specifically, in
+`backend/scripts/benchmark.ts` (see [Adversarial benchmark](#adversarial-resistance-demo--scored-benchmark)).
+
+**Known limitation:** a failed/blocked attempt does not currently *lower*
+a buyer's standing - only the absence of completed orders keeps a new or
+adversarial buyer at base limits. A completed-orders-only anchor already
+defeats the bust-out pattern this was designed against; explicit demotion
+on a flagged attempt would be the natural next hardening step.
+
+## Quote expiry
+
+A negotiated price was previously only ever checked against the floor at
+the moment it was quoted. [`agent/orderDrafts.ts`](backend/src/agent/orderDrafts.ts)
+now stamps every draft with `expiresAt` (`QUOTE_TTL_MINUTES`, 15 minutes),
+and `executePlacement` in [`actions.ts`](backend/src/agent/actions.ts)
+re-verifies it live before ever calling Razorpay: an expired draft is
+refused outright, and even a still-valid one gets its floor and stock
+re-checked against current catalog data - not the frozen numbers from
+when it was quoted - so a gated order left pending while a cost or floor
+changed can't slip a now-stale price through.
+
+## GSTIN gate
+
+Real B2B practice, not a literal legal citation: distributors commonly
+ask for a buyer's GSTIN on larger orders (the buyer needs it for their own
+input-tax-credit claim). [`agent/gstin.ts`](backend/src/agent/gstin.ts)
+validates the real 15-character GSTIN format and checksum (verified
+against an independent reference implementation, not just a plausible
+regex) rather than trusting whatever string the buyer types. Orders above
+`GST_REQUIRED_ABOVE_INR` (₹50,000) gate if no valid GSTIN is on file for
+that buyer - **independent of trust tier**: a raised auto-approval ceiling
+never waives this requirement.
 
 ## Requirement -> code map
 
 | Rubric item | Where it lives |
 |---|---|
 | **Explainable** | Every `appendAuditEntry()` call carries a human-readable `description` computed at the moment of the decision (e.g. [`bounds.ts`](backend/src/agent/bounds.ts) `checkDiscountFloor`). The UI renders `description` verbatim per entry. |
-| **Bounded** | [`agent/bounds.ts`](backend/src/agent/bounds.ts) - pure functions with no LLM involvement. [`agent/actions.ts`](backend/src/agent/actions.ts) `runLineBoundChecks` and `executePlacement` call them unconditionally before any quote is stated or any order is placed - not exposed only as an optional tool the model could skip. |
-| **Gated** | [`agent/gates.ts`](backend/src/agent/gates.ts) `checkGate`. Enforced in [`agent/actions.ts`](backend/src/agent/actions.ts) `executePlacement`: if `gateTriggered && confirmed !== true`, Razorpay is never called, and this is checked in code every time `executePlacement` runs - including if the model tries to call the `placeOrder` tool directly for a gated draft. The only way `confirmed` becomes `true` is the UI's Confirm button hitting `POST /orders/:id/confirm` ([`routes/orders.ts`](backend/src/routes/orders.ts)). |
-| **Audit trail** | [`audit/hashChain.ts`](backend/src/audit/hashChain.ts) + [`audit/auditService.ts`](backend/src/audit/auditService.ts), SQLite-backed (`audit_entries` table, see [`db/schema.ts`](backend/src/db/schema.ts)). Rendered live via SSE in [`AuditPanel.tsx`](frontend/components/AuditPanel.tsx), with a **Verify chain** button that calls `GET /audit/verify` -> `verifyChain()`, which recomputes every hash and prev_hash link. |
-| **Graceful failure** | Three deliberate cases, all logged like any other action: out-of-stock (`checkStock`), out-of-catalog-scope (`checkCatalogScope`), and adversarial discount-floor pressure (`checkDiscountFloor`, exercised in `backend/scripts/smoke.ts`). |
+| **Bounded** | [`agent/bounds.ts`](backend/src/agent/bounds.ts) - pure functions with no LLM involvement. [`agent/actions.ts`](backend/src/agent/actions.ts) `runLineBoundChecks` and `executePlacement` call them unconditionally before any quote is stated or any order is placed - not exposed only as an optional tool the model could skip. Quote expiry adds a live re-check of the floor at confirm time, not just at quote time (see [Quote expiry](#quote-expiry)). |
+| **Gated** | [`agent/gates.ts`](backend/src/agent/gates.ts) `checkGate`, called with per-buyer limits computed by [`agent/trust.ts`](backend/src/agent/trust.ts) and a GSTIN-on-file flag from [`agent/gstin.ts`](backend/src/agent/gstin.ts)/`buyerProfile.ts`. Enforced in [`agent/actions.ts`](backend/src/agent/actions.ts) `executePlacement`: if `gateTriggered && confirmed !== true`, Razorpay is never called, and this is checked in code every time `executePlacement` runs - including if the model tries to call the `placeOrder` tool directly for a gated draft. The only way `confirmed` becomes `true` is the UI's Confirm button hitting `POST /orders/:id/confirm` ([`routes/orders.ts`](backend/src/routes/orders.ts)). See [Trust-tier gate](#trust-tier-gate) and [GSTIN gate](#gstin-gate). |
+| **Audit trail** | [`audit/hashChain.ts`](backend/src/audit/hashChain.ts) + [`audit/auditService.ts`](backend/src/audit/auditService.ts), SQLite-backed (`audit_entries` table, see [`db/schema.ts`](backend/src/db/schema.ts)). Rendered live via SSE in [`AuditPanel.tsx`](frontend/components/AuditPanel.tsx), with a **Verify chain** button that calls `GET /audit/verify` -> `verifyChain()`, which recomputes every hash and prev_hash link. `trust.ts` also reads `verifyChain()` as a fail-safe before extending any trust. |
+| **Graceful failure** | Deliberate cases, all logged like any other action: out-of-stock (`checkStock`), out-of-catalog-scope (`checkCatalogScope`), adversarial discount-floor pressure (`checkDiscountFloor`), an expired/stale quote, a fabricated GSTIN checksum, and a bust-out attempt against a trust-raised gate ceiling - all exercised in `backend/scripts/smoke.ts` and `backend/scripts/benchmark.ts`. |
 
-## Adversarial resistance demo
+## Adversarial resistance demo + scored benchmark
 
 `backend/scripts/smoke.ts` drives the bound/gate/audit code paths directly
 (no LLM required) and asserts on the outcomes - this is the "test/demo
@@ -112,6 +190,21 @@ it") is refused; a legitimate discount is approved; an out-of-stock line is
 rejected; an unknown SKU is declined; a normal order auto-approves; a large
 order (over both thresholds) pauses and cannot be placed without
 confirmation; and the audit trail's hash chain verifies at the end.
+
+`backend/scripts/benchmark.ts` goes further: ~27 scenarios grouped by
+category (adversarial floor pressure, legitimate requests that must *not*
+be refused, graceful failure, gating by value/quantity/GSTIN, quote
+expiry, and trust-tier progression including the anti-bust-out case),
+reporting a real scorecard instead of just pass/fail asserts - closing the
+credibility gap against the strongest comparable submission found during
+competitive research (which publishes a measured recall/false-positive
+eval; this is the same spirit at a scope that fits a hackathon timeline):
+
+```bash
+npm run benchmark -w backend
+```
+
+Writes `backend/BENCHMARK_RESULTS.md` and exits non-zero on any regression.
 
 These same four scenarios were also verified conversationally end to end
 (live LLM, real SSE trace, real audit entries, real confirm/decline UI) -
@@ -174,16 +267,18 @@ act pipeline this whole project demonstrates is inherently multi-tool-call.
 ## Project layout
 
 ```
-shared/types.ts          Product/Order/AuditEntry/BOUND_CONFIG - the schema both sides import
-backend/src/db/          Drizzle schema, SQLite client, catalog repository, seed data (36 SKUs)
-backend/src/redis/       Redis client (chat history + order drafts)
-backend/src/agent/       bounds.ts, gates.ts, actions.ts, tools.ts, loop.ts, prompt.ts, sessions.ts, orderDrafts.ts
-backend/src/audit/       hashChain.ts, auditService.ts
-backend/src/razorpay/    test-mode Orders API client
-backend/src/routes/      /chat (SSE), /audit (SSE + verify), /orders (confirm/decline)
-backend/scripts/smoke.ts LLM-free bound/gate/audit proof (see above)
-frontend/app/            Next.js app router page + layout
-frontend/components/     ChatPanel.tsx, AuditPanel.tsx
+shared/types.ts           Product/Order/AuditEntry/BuyerLimits/BOUND_CONFIG - the schema both sides import
+backend/src/db/           Drizzle schema, SQLite client, catalog repository, seed data (36 SKUs)
+backend/src/redis/        Redis client (chat history / order drafts / buyer GSTIN)
+backend/src/agent/        bounds.ts, gates.ts, trust.ts, gstin.ts, actions.ts, tools.ts, loop.ts,
+                           prompt.ts, sessions.ts, orderDrafts.ts, buyerProfile.ts
+backend/src/audit/        hashChain.ts, auditService.ts
+backend/src/razorpay/     test-mode Orders API client
+backend/src/routes/       /chat (SSE), /audit (SSE + verify), /orders (confirm/decline), /buyers (limits)
+backend/scripts/smoke.ts       LLM-free bound/gate/audit proof (see above)
+backend/scripts/benchmark.ts   scored adversarial benchmark (see above)
+frontend/app/             Next.js app router page + layout (renders the trust-limit badge)
+frontend/components/      ChatPanel.tsx, AuditPanel.tsx
 ```
 
 ## Known limitations (by design, for a hackathon scope)

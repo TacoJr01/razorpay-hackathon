@@ -6,7 +6,9 @@ import { checkCatalogScope, checkDiscountFloor, checkMOQ, checkStock } from './b
 import { checkGate } from './gates.js';
 import { createDraft, getDraft, markExecuted, setConfirmation, type OrderDraftRecord } from './orderDrafts.js';
 import { createRazorpayOrder } from '../razorpay/client.js';
-import type { OrderItem } from '@b2b-agent/shared';
+import { computeBuyerLimits } from './trust.js';
+import { getBuyerGSTIN } from './buyerProfile.js';
+import { BOUND_CONFIG, type OrderItem } from '@b2b-agent/shared';
 
 export interface RequestedLine {
   productId: string;
@@ -188,7 +190,23 @@ export async function checkOrderGate(lines: RequestedLine[], buyerId: string) {
   }));
   const total = Math.round(items.reduce((sum, i) => sum + i.lineTotal, 0) * 100) / 100;
 
-  const gate = checkGate({ items, total, reason: '' });
+  // Trust and GSTIN lookups are the only I/O in this step - checkGate itself
+  // stays a pure function, same discipline as bounds.ts.
+  const limits = await computeBuyerLimits(buyerId);
+  const gstin = await getBuyerGSTIN(buyerId);
+
+  appendAuditEntry({
+    actionType: 'buyer_trust_computed',
+    description: limits.trustApplied
+      ? `Buyer has ${limits.completedOrders} completed orders (largest ₹${limits.largestOrderValue}, ${limits.largestLineQty} units). Auto-approve ceiling raised to ₹${limits.valueLimit} / ${limits.qtyLimit} units - never more than ${BOUND_CONFIG.GATE_TRUST_MULTIPLIER}x their own largest completed order, and never above the absolute cap.`
+      : `Buyer has ${limits.completedOrders} completed order(s) - below the ${BOUND_CONFIG.GATE_TRUST_MIN_ORDERS} needed for a raised limit. Base auto-approve ceiling applies: ₹${limits.valueLimit} / ${limits.qtyLimit} units.`,
+    boundChecked: 'none',
+    boundResult: 'n/a',
+    gateTriggered: false,
+    metadata: { buyerId, ...limits },
+  });
+
+  const gate = checkGate({ items, total, reason: '' }, limits, !!gstin, BOUND_CONFIG.GST_REQUIRED_ABOVE_INR);
 
   const draft: OrderDraftRecord = await createDraft({
     buyerId,
@@ -260,6 +278,45 @@ export async function executePlacement(draftId: string) {
 
   if (draft.confirmed === false) {
     return { success: false as const, reason: `Order draft ${draftId} was declined by the buyer.` };
+  }
+
+  // Quote expiry: a draft's prices were only ever validated against the
+  // floor/stock at evaluation time. If a gated order sits waiting for
+  // confirmation, re-validate it fresh rather than trusting a stale draft.
+  if (new Date() > new Date(draft.expiresAt)) {
+    appendAuditEntry({
+      actionType: 'order_placement_blocked',
+      description: `Refused to place order ${draftId}: this quote expired at ${draft.expiresAt} (quotes are valid for ${BOUND_CONFIG.QUOTE_TTL_MINUTES} minutes). Ask the agent to re-quote at current prices.`,
+      boundChecked: 'none',
+      boundResult: 'n/a',
+      gateTriggered: draft.gateTriggered,
+      metadata: { draftId, expiresAt: draft.expiresAt },
+    });
+    return { success: false as const, reason: `Order draft ${draftId} has expired. Please re-quote.` };
+  }
+
+  const staleLines: string[] = [];
+  for (const item of draft.items) {
+    const product = getProductById(item.productId);
+    if (!product) {
+      staleLines.push(`${item.productName} is no longer in the catalog.`);
+      continue;
+    }
+    const floor = checkDiscountFloor(product, item.unitPrice);
+    const stock = checkStock(product, item.quantity);
+    if (!floor.pass) staleLines.push(floor.reason);
+    if (!stock.pass) staleLines.push(stock.reason);
+  }
+  if (staleLines.length > 0) {
+    appendAuditEntry({
+      actionType: 'order_placement_blocked',
+      description: `Refused to place order ${draftId}: re-verification at confirmation time found the quote is now stale - ${staleLines.join(' ')}`,
+      boundChecked: 'discount_floor',
+      boundResult: 'fail',
+      gateTriggered: draft.gateTriggered,
+      metadata: { draftId, staleLines },
+    });
+    return { success: false as const, reason: `Order draft ${draftId} is stale (prices or stock changed since quoting) and cannot be placed. Please re-quote.` };
   }
 
   let razorpayOrder;

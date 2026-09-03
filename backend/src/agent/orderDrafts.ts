@@ -1,5 +1,5 @@
 import { nanoid } from 'nanoid';
-import type { OrderItem } from '@b2b-agent/shared';
+import { BOUND_CONFIG, type OrderItem } from '@b2b-agent/shared';
 import { redis } from '../redis/client.js';
 
 export interface OrderDraftRecord {
@@ -15,6 +15,8 @@ export interface OrderDraftRecord {
   confirmed: boolean | null;
   executed: boolean;
   createdAt: string;
+  /** A negotiated quote is only valid for this long - executePlacement re-checks it. */
+  expiresAt: string;
 }
 
 const TTL_SECONDS = 60 * 60 * 24; // 1 day - long enough to outlive any single demo session
@@ -24,7 +26,7 @@ function key(id: string): string {
 }
 
 export async function createDraft(
-  input: Omit<OrderDraftRecord, 'id' | 'createdAt' | 'executed' | 'confirmed'>,
+  input: Omit<OrderDraftRecord, 'id' | 'createdAt' | 'executed' | 'confirmed' | 'expiresAt'>,
 ): Promise<OrderDraftRecord> {
   const record: OrderDraftRecord = {
     ...input,
@@ -32,6 +34,7 @@ export async function createDraft(
     confirmed: input.gateTriggered ? null : true,
     executed: false,
     createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + BOUND_CONFIG.QUOTE_TTL_MINUTES * 60_000).toISOString(),
   };
   await redis.set(key(record.id), JSON.stringify(record), 'EX', TTL_SECONDS);
   return record;

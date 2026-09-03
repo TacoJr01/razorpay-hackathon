@@ -1,6 +1,18 @@
-import type { AgentStreamEvent, AuditEntry, ChainVerificationResult, PublicProduct } from '@b2b-agent/shared';
+import type { AgentStreamEvent, AuditEntry, BuyerLimits, ChainVerificationResult, PublicProduct } from '@b2b-agent/shared';
 
 export const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:4000';
+
+/** Each browser session is one synthetic buyer - this id doubles as buyerId throughout the backend. */
+export function getSessionId(): string {
+  if (typeof window === 'undefined') return 'server';
+  const key = 'b2b-agent-session-id';
+  let id = window.localStorage.getItem(key);
+  if (!id) {
+    id = `sess_${Math.random().toString(36).slice(2, 10)}`;
+    window.localStorage.setItem(key, id);
+  }
+  return id;
+}
 
 /**
  * The chat endpoint needs a POST body (the message), so it can't use the
@@ -81,5 +93,10 @@ export async function confirmOrder(draftId: string) {
 
 export async function declineOrder(draftId: string) {
   const res = await fetch(`${BACKEND_URL}/orders/${draftId}/decline`, { method: 'POST' });
+  return res.json();
+}
+
+export async function fetchBuyerLimits(buyerId: string): Promise<BuyerLimits> {
+  const res = await fetch(`${BACKEND_URL}/buyers/${buyerId}/limits`);
   return res.json();
 }

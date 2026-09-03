@@ -8,6 +8,7 @@
     "start": "tsx src/index.ts",
     "seed": "tsx src/db/seed.ts",
     "demo:bounds": "tsx scripts/smoke.ts",
+    "benchmark": "tsx scripts/benchmark.ts",
     "migrate": "drizzle-kit push",
     "typecheck": "tsc --noEmit"
   },
