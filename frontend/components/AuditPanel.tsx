@@ -4,6 +4,23 @@ import { useEffect, useRef, useState } from 'react';
 import type { AuditEntry, ChainVerificationResult } from '@b2b-agent/shared';
 import { subscribeAuditStream, verifyAuditChain } from '../lib/api';
 
+const ACTION_LABELS: Record<string, string> = {
+  discount_proposal: 'Discount checked',
+  order_line_bound_check: 'Order line checked',
+  order_gate_check: 'Gate check',
+  order_placement_blocked: 'Order blocked',
+  order_placed: 'Order placed',
+  order_declined_by_user: 'Order declined',
+  order_confirmed_by_user: 'Order confirmed',
+  buyer_trust_computed: 'Trust limit computed',
+  gstin_provided: 'GSTIN verified',
+  catalog_lookup: 'Catalog lookup',
+};
+
+function actionLabel(actionType: string): string {
+  return ACTION_LABELS[actionType] ?? actionType.replace(/_/g, ' ');
+}
+
 function timeOf(ts: string) {
   return new Date(ts).toLocaleTimeString();
 }
@@ -56,7 +73,10 @@ export function AuditPanel() {
         {entries.map((e) => (
           <div key={e.id} className={`entry ${result && !result.valid && e.id >= (result.brokenAtId ?? Infinity) ? 'broken' : ''}`}>
             <div className="entry-top">
-              <span className="entry-action">#{e.id} {e.actionType}</span>
+              <span className="entry-action">
+                {actionLabel(e.actionType)}
+                <span className="entry-code">{e.actionType} · #{e.id}</span>
+              </span>
               <span className="entry-time">{timeOf(e.timestamp)}</span>
             </div>
             <div className="entry-desc">{e.description}</div>

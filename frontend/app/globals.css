@@ -348,20 +348,32 @@ button {
 .entry-top {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 5px;
+  align-items: flex-start;
+  margin-bottom: 6px;
+  gap: 10px;
 }
 
 .entry-action {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   font-weight: 600;
-  font-family: 'SF Mono', ui-monospace, Menlo, monospace;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text);
+}
+
+.entry-code {
+  font-weight: 400;
+  font-family: 'SF Mono', ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  color: var(--text-dim);
 }
 
 .entry-time {
   color: var(--text-dim);
   font-size: 10.5px;
+  white-space: nowrap;
+  padding-top: 1px;
 }
 
 .entry-desc {
