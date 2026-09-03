@@ -4,10 +4,6 @@ import { useEffect, useRef, useState } from 'react';
 import type { AuditEntry, ChainVerificationResult } from '@b2b-agent/shared';
 import { subscribeAuditStream, verifyAuditChain } from '../lib/api';
 
-function shortHash(h: string) {
-  return `${h.slice(0, 10)}…${h.slice(-6)}`;
-}
-
 function timeOf(ts: string) {
   return new Date(ts).toLocaleTimeString();
 }
@@ -74,9 +70,6 @@ export function AuditPanel() {
                   gate {e.gateConfirmed === null ? 'pending' : e.gateConfirmed ? 'confirmed' : 'declined'}
                 </span>
               )}
-            </div>
-            <div className="entry-hash">
-              prev {shortHash(e.prevHash)} → hash {shortHash(e.hash)}
             </div>
           </div>
         ))}
