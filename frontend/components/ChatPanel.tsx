@@ -4,13 +4,16 @@ import { useEffect, useRef, useState } from 'react';
 import type { AgentStreamEvent, OrderDraft } from '@b2b-agent/shared';
 import { confirmOrder, declineOrder, getSessionId, streamChat } from '../lib/api';
 
-type TraceEvent =
-  | { kind: 'tool_call'; name: string; args: unknown }
-  | { kind: 'tool_result'; name: string; result: unknown };
+interface TraceStep {
+  name: string;
+  args: unknown;
+  result?: unknown;
+  done: boolean;
+}
 
 type TurnItem =
   | { type: 'text'; text: string }
-  | { type: 'trace'; events: TraceEvent[] }
+  | { type: 'trace'; steps: TraceStep[] }
   | { type: 'gate'; gateId: string; reason: string; orderDraft: OrderDraft; status: 'pending' | 'confirmed' | 'declined' };
 
 type TimelineEntry = { role: 'user'; text: string } | { role: 'assistant'; items: TurnItem[] };
@@ -22,10 +25,51 @@ const SUGGESTIONS = [
   'Place an order for 600 Pillow Block Bearings UCP205 (BRG-103).',
 ];
 
-function formatCompact(value: unknown): string {
-  const str = JSON.stringify(value);
-  if (!str) return '';
-  return str.length > 160 ? str.slice(0, 160) + '…' : str;
+// Human-readable summaries for the step list. Falls back to a de-camelCased
+// version of the tool name for anything not listed here.
+const STEP_LABELS: Record<string, string> = {
+  searchCatalog: 'Searching the catalog',
+  getProduct: 'Looking up product details',
+  getRecommendations: 'Finding related products',
+  proposeDiscount: 'Checking the requested price',
+  checkOrderBounds: 'Validating the order',
+  checkOrderGate: 'Checking approval limits',
+  placeOrder: 'Placing the order',
+  provideGSTIN: 'Verifying GSTIN',
+};
+
+function stepLabel(name: string): string {
+  return STEP_LABELS[name] ?? name.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
+}
+
+function TraceBlock({ steps }: { steps: TraceStep[] }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="trace">
+      <ul className="trace-steps">
+        {steps.map((step, i) => (
+          <li key={i} className={`trace-step ${step.done ? 'done' : 'pending'}`}>
+            <span className="trace-step-icon">{step.done ? '✓' : '…'}</span>
+            {stepLabel(step.name)}
+          </li>
+        ))}
+      </ul>
+      <button type="button" className="trace-toggle" onClick={() => setExpanded((v) => !v)}>
+        {expanded ? 'Hide' : 'Show'} technical details
+      </button>
+      {expanded && (
+        <div className="trace-detail">
+          {steps.map((step, i) => (
+            <div className="trace-detail-line" key={i}>
+              <span className="tag">{step.name}</span>
+              {JSON.stringify(step.args)}
+              {step.done && <> → {JSON.stringify(step.result)}</>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function ChatPanel({ onTurnComplete }: { onTurnComplete?: () => void } = {}) {
@@ -69,21 +113,25 @@ export function ChatPanel({ onTurnComplete }: { onTurnComplete?: () => void } = 
       case 'tool_call':
         mutateCurrent((items) => {
           const last = items[items.length - 1];
-          const ev: TraceEvent = { kind: 'tool_call', name: event.name, args: event.args };
+          const step: TraceStep = { name: event.name, args: event.args, done: false };
           if (last && last.type === 'trace') {
-            return [...items.slice(0, -1), { type: 'trace', events: [...last.events, ev] }];
+            return [...items.slice(0, -1), { type: 'trace', steps: [...last.steps, step] }];
           }
-          return [...items, { type: 'trace', events: [ev] }];
+          return [...items, { type: 'trace', steps: [step] }];
         });
         break;
       case 'tool_result':
         mutateCurrent((items) => {
           const last = items[items.length - 1];
-          const ev: TraceEvent = { kind: 'tool_result', name: event.name, result: event.result };
-          if (last && last.type === 'trace') {
-            return [...items.slice(0, -1), { type: 'trace', events: [...last.events, ev] }];
-          }
-          return [...items, { type: 'trace', events: [ev] }];
+          if (!last || last.type !== 'trace') return items;
+          // Pairs with the most recent not-yet-resolved step of the same name -
+          // our tool loop awaits each call before starting the next, so this
+          // always matches the call this result belongs to.
+          const stepIndex = [...last.steps].reverse().findIndex((s) => s.name === event.name && !s.done);
+          if (stepIndex === -1) return items;
+          const realIndex = last.steps.length - 1 - stepIndex;
+          const steps = last.steps.map((s, i) => (i === realIndex ? { ...s, result: event.result, done: true } : s));
+          return [...items.slice(0, -1), { type: 'trace', steps }];
         });
         break;
       case 'gate':
@@ -165,16 +213,7 @@ export function ChatPanel({ onTurnComplete }: { onTurnComplete?: () => void } = 
         );
       }
       if (item.type === 'trace') {
-        return (
-          <div className="trace" key={idx}>
-            {item.events.map((ev, i) => (
-              <div className="trace-line" key={i}>
-                <span className="tag">{ev.kind === 'tool_call' ? '→ call' : '← result'}</span>
-                {ev.name}({ev.kind === 'tool_call' ? formatCompact(ev.args) : formatCompact(ev.result)})
-              </div>
-            ))}
-          </div>
-        );
+        return <TraceBlock steps={item.steps} key={idx} />;
       }
       // gate
       return (
@@ -244,7 +283,11 @@ export function ChatPanel({ onTurnComplete }: { onTurnComplete?: () => void } = 
         {current && <div>{renderTurnItems(current, null)}</div>}
         {sending && (!current || current.length === 0) && (
           <div className="trace">
-            <div className="trace-line">thinking…</div>
+            <ul className="trace-steps">
+              <li className="trace-step pending">
+                <span className="trace-step-icon">…</span>Thinking
+              </li>
+            </ul>
           </div>
         )}
         <div ref={bottomRef} />
