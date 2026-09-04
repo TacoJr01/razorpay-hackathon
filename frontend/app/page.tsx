@@ -4,7 +4,7 @@ export default function Landing() {
   return (
     <div className="landing">
       <nav className="landing-nav">
-        <span className="landing-brand">B2B Commerce Agent</span>
+        <span className="landing-brand">Hisaab</span>
         <div className="landing-nav-links">
           <a href="https://github.com/TacoJr01/razorpay-hackathon" target="_blank" rel="noreferrer">
             GitHub
@@ -16,7 +16,10 @@ export default function Landing() {
       </nav>
 
       <header className="landing-hero">
-        <h1>An AI sales agent that can&apos;t break its own rules.</h1>
+        <h1 className="pill-headline">
+          <span className="pill-line">An AI sales agent</span>
+          <span className="pill-line">that can&apos;t break its own rules</span>
+        </h1>
         <p>
           Negotiates bulk B2B orders and quotes real prices against a hard-coded
           margin floor, then settles real Razorpay test-mode orders - with every
@@ -44,7 +47,7 @@ export default function Landing() {
           <span className="landing-dot" />
           <span className="landing-dot" />
           <span className="landing-dot" />
-          <span className="landing-preview-title">B2B Commerce Agent — Demo</span>
+          <span className="landing-preview-title">Hisaab — Demo</span>
         </div>
         <div className="landing-preview-body">
           <div className="landing-preview-col">

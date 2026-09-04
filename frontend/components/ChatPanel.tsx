@@ -43,7 +43,6 @@ function stepLabel(name: string): string {
 }
 
 function TraceBlock({ steps }: { steps: TraceStep[] }) {
-  const [expanded, setExpanded] = useState(false);
   return (
     <div className="trace">
       <ul className="trace-steps">
@@ -54,20 +53,6 @@ function TraceBlock({ steps }: { steps: TraceStep[] }) {
           </li>
         ))}
       </ul>
-      <button type="button" className="trace-toggle" onClick={() => setExpanded((v) => !v)}>
-        {expanded ? 'Hide' : 'Show'} technical details
-      </button>
-      {expanded && (
-        <div className="trace-detail">
-          {steps.map((step, i) => (
-            <div className="trace-detail-line" key={i}>
-              <span className="tag">{step.name}</span>
-              {JSON.stringify(step.args)}
-              {step.done && <> → {JSON.stringify(step.result)}</>}
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

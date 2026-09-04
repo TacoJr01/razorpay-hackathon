@@ -30,7 +30,7 @@ export default function Demo() {
     <div className="app-shell">
       <div className="topbar">
         <Link href="/" className="topbar-brand">
-          <h1>B2B Commerce Agent — Demo</h1>
+          <h1>Hisaab — Demo</h1>
         </Link>
         <div className="badges">
           {config && (

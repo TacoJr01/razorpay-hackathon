@@ -1,4 +1,4 @@
-# B2B Commerce Agent
+# Hisaab
 
 A conversational agent for a synthetic B2B bulk-trade distributor (industrial
 hardware + technical textiles - no real company, brand, or client data). It
