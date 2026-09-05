@@ -30,6 +30,13 @@ export function runMigrations() {
       razorpay_order_id TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS buyer_overrides (
+      buyer_id TEXT PRIMARY KEY,
+      margin_pct REAL,
+      gst_threshold_inr INTEGER,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS audit_entries (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       timestamp TEXT NOT NULL,

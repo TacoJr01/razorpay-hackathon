@@ -33,6 +33,19 @@ export const orders = sqliteTable('orders', {
 });
 
 // ---------------------------------------------------------------------------
+// Merchant-set per-buyer overrides (negotiated terms). Never writable from
+// the buyer's chat session - only the merchant-authenticated routes touch
+// this table. A null field means "use the global BOUND_CONFIG default".
+// ---------------------------------------------------------------------------
+
+export const buyerOverrides = sqliteTable('buyer_overrides', {
+  buyerId: text('buyer_id').primaryKey(),
+  marginPct: real('margin_pct'),
+  gstThresholdInr: integer('gst_threshold_inr'),
+  updatedAt: text('updated_at').notNull(),
+});
+
+// ---------------------------------------------------------------------------
 // Audit trail (hash-chained, durable - this is the tamper-evident log)
 // ---------------------------------------------------------------------------
 

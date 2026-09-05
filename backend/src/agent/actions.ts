@@ -8,7 +8,18 @@ import { createDraft, getDraft, markExecuted, setConfirmation, type OrderDraftRe
 import { createRazorpayOrder } from '../razorpay/client.js';
 import { computeBuyerLimits } from './trust.js';
 import { getBuyerGSTIN } from './buyerProfile.js';
+import { getBuyerOverride } from './merchantOverrides.js';
 import { BOUND_CONFIG, type OrderItem } from '@b2b-agent/shared';
+
+/** Effective per-buyer margin floor: merchant override if set, else the global default. */
+function resolveMarginPct(buyerId: string): number {
+  return getBuyerOverride(buyerId)?.marginPct ?? BOUND_CONFIG.MIN_MARGIN_PCT;
+}
+
+/** Effective per-buyer GSTIN threshold: merchant override if set, else the global default. */
+function resolveGstThreshold(buyerId: string): number {
+  return getBuyerOverride(buyerId)?.gstThresholdInr ?? BOUND_CONFIG.GST_REQUIRED_ABOVE_INR;
+}
 
 export interface RequestedLine {
   productId: string;
@@ -21,7 +32,7 @@ export interface RequestedLine {
 // price on X" style questions, independent of placing an order)
 // ---------------------------------------------------------------------------
 
-export function proposeDiscount(productId: string, quantity: number, requestedUnitPrice: number) {
+export function proposeDiscount(productId: string, quantity: number, requestedUnitPrice: number, buyerId: string) {
   const product = getProductById(productId);
   const scope = checkCatalogScope(productId, product);
   if (!scope.pass) {
@@ -38,7 +49,7 @@ export function proposeDiscount(productId: string, quantity: number, requestedUn
 
   const moq = checkMOQ(product!, quantity);
   const stock = checkStock(product!, quantity);
-  const floor = checkDiscountFloor(product!, requestedUnitPrice);
+  const floor = checkDiscountFloor(product!, requestedUnitPrice, resolveMarginPct(buyerId));
 
   const allPass = moq.pass && stock.pass && floor.pass;
   const failing = [moq, stock, floor].filter((c) => !c.pass);
@@ -80,8 +91,8 @@ export interface LineCheckResult {
   failures: string[];
 }
 
-export function checkOrderBounds(lines: RequestedLine[]): { allPass: boolean; results: LineCheckResult[] } {
-  return runLineBoundChecks(lines);
+export function checkOrderBounds(lines: RequestedLine[], buyerId: string): { allPass: boolean; results: LineCheckResult[] } {
+  return runLineBoundChecks(lines, buyerId);
 }
 
 /**
@@ -90,7 +101,8 @@ export function checkOrderBounds(lines: RequestedLine[]): { allPass: boolean; re
  * re-validates every line itself rather than trusting that the model called
  * checkOrderBounds first and passed on honest results.
  */
-function runLineBoundChecks(lines: RequestedLine[]): { allPass: boolean; results: LineCheckResult[] } {
+function runLineBoundChecks(lines: RequestedLine[], buyerId: string): { allPass: boolean; results: LineCheckResult[] } {
+  const marginPct = resolveMarginPct(buyerId);
   const results: LineCheckResult[] = [];
 
   for (const line of lines) {
@@ -113,7 +125,7 @@ function runLineBoundChecks(lines: RequestedLine[]): { allPass: boolean; results
     const unitPrice = line.requestedUnitPrice ?? product!.unitPrice;
     const moq = checkMOQ(product!, line.quantity);
     const stock = checkStock(product!, line.quantity);
-    const floor = checkDiscountFloor(product!, unitPrice);
+    const floor = checkDiscountFloor(product!, unitPrice, marginPct);
 
     const checks: Array<{ name: 'moq' | 'stock' | 'discount_floor'; check: typeof moq }> = [
       { name: 'moq', check: moq },
@@ -167,7 +179,7 @@ function runLineBoundChecks(lines: RequestedLine[]): { allPass: boolean; results
 export async function checkOrderGate(lines: RequestedLine[], buyerId: string) {
   // Re-validate independently - this step never trusts that a prior
   // checkOrderBounds call happened or was honest about its result.
-  const { allPass, results } = runLineBoundChecks(lines);
+  const { allPass, results } = runLineBoundChecks(lines, buyerId);
 
   if (!allPass) {
     appendAuditEntry({
@@ -206,7 +218,7 @@ export async function checkOrderGate(lines: RequestedLine[], buyerId: string) {
     metadata: { buyerId, ...limits },
   });
 
-  const gate = checkGate({ items, total, reason: '' }, limits, !!gstin, BOUND_CONFIG.GST_REQUIRED_ABOVE_INR);
+  const gate = checkGate({ items, total, reason: '' }, limits, !!gstin, resolveGstThreshold(buyerId));
 
   const draft: OrderDraftRecord = await createDraft({
     buyerId,
@@ -296,13 +308,14 @@ export async function executePlacement(draftId: string) {
   }
 
   const staleLines: string[] = [];
+  const marginPct = resolveMarginPct(draft.buyerId);
   for (const item of draft.items) {
     const product = getProductById(item.productId);
     if (!product) {
       staleLines.push(`${item.productName} is no longer in the catalog.`);
       continue;
     }
-    const floor = checkDiscountFloor(product, item.unitPrice);
+    const floor = checkDiscountFloor(product, item.unitPrice, marginPct);
     const stock = checkStock(product, item.quantity);
     if (!floor.pass) staleLines.push(floor.reason);
     if (!stock.pass) staleLines.push(stock.reason);

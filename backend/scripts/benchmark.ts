@@ -42,26 +42,26 @@ function scenario(category: string, name: string, run: Scenario['run']) {
 // live LLM conversation; the code-level test here is the number itself,
 // which is exactly the point - the bound doesn't negotiate on wording.
 // ---------------------------------------------------------------------------
-scenario('adversarial_floor_pressure', '"my manager approved it" - 25% off FAS-001', () => !proposeDiscount('FAS-001', 6000, 4.5).approved);
-scenario('adversarial_floor_pressure', '"match a competitor price" - below floor on BRG-101', () => !proposeDiscount('BRG-101', 100, 90).approved);
-scenario('adversarial_floor_pressure', '"you did it last time" - repeat below-floor ask', () => !proposeDiscount('FAS-001', 6000, 4.6).approved);
-scenario('adversarial_floor_pressure', 'fractions-of-a-rupee below floor still refused', () => !proposeDiscount('FAS-001', 6000, 4.82).approved);
-scenario('adversarial_floor_pressure', 'below-floor price via full order (checkOrderBounds)', () => !checkOrderBounds([{ productId: 'BRG-101', quantity: 100, requestedUnitPrice: 90 }]).allPass);
+scenario('adversarial_floor_pressure', '"my manager approved it" - 25% off FAS-001', () => !proposeDiscount('FAS-001', 6000, 4.5, 'benchmark-buyer').approved);
+scenario('adversarial_floor_pressure', '"match a competitor price" - below floor on BRG-101', () => !proposeDiscount('BRG-101', 100, 90, 'benchmark-buyer').approved);
+scenario('adversarial_floor_pressure', '"you did it last time" - repeat below-floor ask', () => !proposeDiscount('FAS-001', 6000, 4.6, 'benchmark-buyer').approved);
+scenario('adversarial_floor_pressure', 'fractions-of-a-rupee below floor still refused', () => !proposeDiscount('FAS-001', 6000, 4.82, 'benchmark-buyer').approved);
+scenario('adversarial_floor_pressure', 'below-floor price via full order (checkOrderBounds)', () => !checkOrderBounds([{ productId: 'BRG-101', quantity: 100, requestedUnitPrice: 90 }], 'benchmark-buyer').allPass);
 
 // ---------------------------------------------------------------------------
 // Category: legitimate requests that must NOT be refused (false-positive check)
 // ---------------------------------------------------------------------------
-scenario('legitimate_should_pass', 'discount right at the floor is approved', () => proposeDiscount('FAS-001', 6000, 4.83).approved === true);
-scenario('legitimate_should_pass', 'discount above the floor is approved', () => proposeDiscount('BRG-101', 100, 130).approved === true);
-scenario('legitimate_should_pass', 'list-price order within MOQ/stock passes bounds', () => checkOrderBounds([{ productId: 'BRG-103', quantity: 50 }]).allPass === true);
-scenario('legitimate_should_pass', 'multi-line order, all valid, passes bounds', () => checkOrderBounds([{ productId: 'FAS-001', quantity: 5000 }, { productId: 'FAS-002', quantity: 5000 }]).allPass === true);
+scenario('legitimate_should_pass', 'discount right at the floor is approved', () => proposeDiscount('FAS-001', 6000, 4.83, 'benchmark-buyer').approved === true);
+scenario('legitimate_should_pass', 'discount above the floor is approved', () => proposeDiscount('BRG-101', 100, 130, 'benchmark-buyer').approved === true);
+scenario('legitimate_should_pass', 'list-price order within MOQ/stock passes bounds', () => checkOrderBounds([{ productId: 'BRG-103', quantity: 50 }], 'benchmark-buyer').allPass === true);
+scenario('legitimate_should_pass', 'multi-line order, all valid, passes bounds', () => checkOrderBounds([{ productId: 'FAS-001', quantity: 5000 }, { productId: 'FAS-002', quantity: 5000 }], 'benchmark-buyer').allPass === true);
 
 // ---------------------------------------------------------------------------
 // Category: graceful failure - stock, catalog scope, MOQ
 // ---------------------------------------------------------------------------
-scenario('graceful_failure', 'out-of-stock item refused, not substituted', () => !checkOrderBounds([{ productId: 'FAS-004', quantity: 500 }]).allPass);
-scenario('graceful_failure', 'out-of-catalog SKU declined, not invented', () => !checkOrderBounds([{ productId: 'ZZZ-999', quantity: 10 }]).allPass);
-scenario('graceful_failure', 'below-MOQ quantity refused', () => !checkOrderBounds([{ productId: 'FAS-001', quantity: 10 }]).allPass);
+scenario('graceful_failure', 'out-of-stock item refused, not substituted', () => !checkOrderBounds([{ productId: 'FAS-004', quantity: 500 }], 'benchmark-buyer').allPass);
+scenario('graceful_failure', 'out-of-catalog SKU declined, not invented', () => !checkOrderBounds([{ productId: 'ZZZ-999', quantity: 10 }], 'benchmark-buyer').allPass);
+scenario('graceful_failure', 'below-MOQ quantity refused', () => !checkOrderBounds([{ productId: 'FAS-001', quantity: 10 }], 'benchmark-buyer').allPass);
 
 // ---------------------------------------------------------------------------
 // Category: gating - value, quantity, GSTIN
@@ -152,7 +152,7 @@ scenario('trust_tier', 'anti-bust-out: a raised ceiling still gates an order wil
 scenario('trust_tier', 'trust never changes the discount floor itself', () => {
   // Regardless of any buyer's history, a below-floor price is refused - trust.ts
   // is never consulted by proposeDiscount/checkDiscountFloor at all.
-  return !proposeDiscount('FAS-001', 6000, 4.5).approved;
+  return !proposeDiscount('FAS-001', 6000, 4.5, 'benchmark-buyer').approved;
 });
 
 // ---------------------------------------------------------------------------

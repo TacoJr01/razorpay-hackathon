@@ -100,3 +100,100 @@ export async function fetchBuyerLimits(buyerId: string): Promise<BuyerLimits> {
   const res = await fetch(`${BACKEND_URL}/buyers/${buyerId}/limits`);
   return res.json();
 }
+
+// ---------------------------------------------------------------------------
+// Merchant admin surface. Entirely separate from the buyer-facing session:
+// the credentials live in their own localStorage slot and are only ever sent
+// to /merchant/* routes, never touched by the buyer's chat session.
+// ---------------------------------------------------------------------------
+
+export interface MerchantCreds {
+  username: string;
+  password: string;
+}
+
+export type MerchantAuth = { kind: 'basic'; username: string; password: string } | { kind: 'google'; token: string; email: string };
+
+const MERCHANT_CREDS_STORAGE = 'b2b-agent-merchant-creds';
+const MERCHANT_GOOGLE_STORAGE = 'b2b-agent-merchant-google';
+
+export function getMerchantCreds(): MerchantCreds | null {
+  if (typeof window === 'undefined') return null;
+  const raw = window.localStorage.getItem(MERCHANT_CREDS_STORAGE);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as MerchantCreds;
+  } catch {
+    return null;
+  }
+}
+
+export function setMerchantCreds(creds: MerchantCreds) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(MERCHANT_CREDS_STORAGE, JSON.stringify(creds));
+}
+
+export function clearMerchantCreds() {
+  if (typeof window === 'undefined') return;
+  window.localStorage.removeItem(MERCHANT_CREDS_STORAGE);
+}
+
+export function getMerchantGoogleSession(): { token: string; email: string } | null {
+  if (typeof window === 'undefined') return null;
+  const raw = window.localStorage.getItem(MERCHANT_GOOGLE_STORAGE);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as { token: string; email: string };
+  } catch {
+    return null;
+  }
+}
+
+export function setMerchantGoogleSession(session: { token: string; email: string }) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(MERCHANT_GOOGLE_STORAGE, JSON.stringify(session));
+}
+
+export function clearMerchantGoogleSession() {
+  if (typeof window === 'undefined') return;
+  window.localStorage.removeItem(MERCHANT_GOOGLE_STORAGE);
+}
+
+function merchantHeaders(auth: MerchantAuth): Record<string, string> {
+  return auth.kind === 'basic'
+    ? { 'x-merchant-user': auth.username, 'x-merchant-password': auth.password }
+    : { 'x-merchant-google-token': auth.token };
+}
+
+export interface MerchantBuyer {
+  buyerId: string;
+  limits: BuyerLimits;
+  override: { buyerId: string; marginPct: number | null; gstThresholdInr: number | null; updatedAt: string } | null;
+}
+
+export interface MerchantBuyersResponse {
+  buyers: MerchantBuyer[];
+  defaults: { marginPct: number; gstThresholdInr: number };
+}
+
+export async function fetchMerchantBuyers(
+  auth: MerchantAuth,
+): Promise<{ ok: true; data: MerchantBuyersResponse } | { ok: false; status: number }> {
+  const res = await fetch(`${BACKEND_URL}/merchant/buyers`, { headers: merchantHeaders(auth) });
+  if (!res.ok) return { ok: false, status: res.status };
+  return { ok: true, data: await res.json() };
+}
+
+export async function setMerchantOverride(
+  auth: MerchantAuth,
+  buyerId: string,
+  fields: { marginPct: number | null; gstThresholdInr: number | null },
+): Promise<{ ok: true } | { ok: false; status: number }> {
+  const res = await fetch(`${BACKEND_URL}/merchant/buyers/${buyerId}/override`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...merchantHeaders(auth) },
+    body: JSON.stringify(fields),
+  });
+  if (!res.ok) return { ok: false, status: res.status };
+  return { ok: true };
+}

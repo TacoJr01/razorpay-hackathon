@@ -30,6 +30,11 @@ export function AuditPanel() {
   const [verifying, setVerifying] = useState(false);
   const [result, setResult] = useState<ChainVerificationResult | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  // The stream replays every existing entry on connect before any live ones -
+  // that initial burst should snap straight to the bottom, not visibly
+  // animate through the whole history. Only entries arriving after the burst
+  // settles (genuinely new, one at a time) get a smooth scroll.
+  const settledRef = useRef(false);
 
   useEffect(() => {
     const unsubscribe = subscribeAuditStream((entry) => {
@@ -39,7 +44,14 @@ export function AuditPanel() {
   }, []);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    if (entries.length === 0) return;
+    bottomRef.current?.scrollIntoView({ behavior: settledRef.current ? 'smooth' : 'auto', block: 'end' });
+    if (!settledRef.current) {
+      const timer = setTimeout(() => {
+        settledRef.current = true;
+      }, 400);
+      return () => clearTimeout(timer);
+    }
   }, [entries.length]);
 
   async function handleVerify() {
@@ -63,7 +75,7 @@ export function AuditPanel() {
                 : `✗ broken at #${result.brokenAtId}`}
             </span>
           )}
-          <button className="btn" onClick={handleVerify} disabled={verifying}>
+          <button className="btn verify-chain-btn" onClick={handleVerify} disabled={verifying}>
             {verifying ? 'Verifying…' : 'Verify chain'}
           </button>
         </div>

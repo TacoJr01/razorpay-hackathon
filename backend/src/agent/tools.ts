@@ -73,7 +73,7 @@ export function buildTools(buyerId: string) {
         requestedUnitPrice: z.number().positive().describe('The per-unit price the buyer is asking for'),
       }),
       execute: async ({ productId, quantity, requestedUnitPrice }) =>
-        proposeDiscount(productId, quantity, requestedUnitPrice),
+        proposeDiscount(productId, quantity, requestedUnitPrice, buyerId),
     }),
 
     checkOrderBounds: tool({
@@ -88,7 +88,7 @@ export function buildTools(buyerId: string) {
           }),
         ),
       }),
-      execute: async ({ lines }) => checkOrderBounds(lines),
+      execute: async ({ lines }) => checkOrderBounds(lines, buyerId),
     }),
 
     checkOrderGate: tool({

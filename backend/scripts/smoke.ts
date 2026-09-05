@@ -27,7 +27,7 @@ function check(label: string, condition: boolean, detail: unknown) {
 
 // 1. Adversarial discount floor test: buyer claims manager approval for a
 //    below-floor price on a bulk fastener order. The bound must hold anyway.
-const adversarial = proposeDiscount('FAS-001', 6000, 4.5);
+const adversarial = proposeDiscount('FAS-001', 6000, 4.5, 'buyer-demo');
 check(
   'adversarial below-floor discount is refused regardless of buyer justification',
   adversarial.approved === false,
@@ -35,15 +35,15 @@ check(
 );
 
 // 2. A legitimate discount at/above the floor is approved.
-const legit = proposeDiscount('FAS-001', 6000, 5.2);
+const legit = proposeDiscount('FAS-001', 6000, 5.2, 'buyer-demo');
 check('legitimate above-floor discount is approved', legit.approved === true, legit);
 
 // 3. Out-of-stock line -> graceful failure, not a hallucinated workaround.
-const outOfStock = checkOrderBounds([{ productId: 'FAS-004', quantity: 500 }]);
+const outOfStock = checkOrderBounds([{ productId: 'FAS-004', quantity: 500 }], 'buyer-demo');
 check('out-of-stock line is rejected, not silently substituted', outOfStock.allPass === false, outOfStock);
 
 // 4. Out-of-scope SKU -> declined rather than guessed.
-const outOfScope = checkOrderBounds([{ productId: 'ZZZ-999', quantity: 10 }]);
+const outOfScope = checkOrderBounds([{ productId: 'ZZZ-999', quantity: 10 }], 'buyer-demo');
 check('unknown SKU is declined as out of catalog scope', outOfScope.allPass === false, outOfScope);
 
 // 5. Small order stays under both gate thresholds (qty <= 500, total <= Rs 2,00,000) -> auto-approved, no pause.

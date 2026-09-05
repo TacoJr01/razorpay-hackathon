@@ -8,6 +8,7 @@ import { chatRoute } from './routes/chat.js';
 import { auditRoute } from './routes/audit.js';
 import { ordersRoute } from './routes/orders.js';
 import { buyersRoute } from './routes/buyers.js';
+import { merchantRoute } from './routes/merchant.js';
 import { BOUND_CONFIG, toPublicProduct } from '@b2b-agent/shared';
 
 runMigrations();
@@ -26,6 +27,7 @@ app.route('/chat', chatRoute);
 app.route('/audit', auditRoute);
 app.route('/orders', ordersRoute);
 app.route('/buyers', buyersRoute);
+app.route('/merchant', merchantRoute);
 
 const port = Number(process.env.PORT ?? 4000);
 serve({ fetch: app.fetch, port }, (info) => {

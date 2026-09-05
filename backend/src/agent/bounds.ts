@@ -19,19 +19,27 @@ export interface BoundCheck {
 
 /**
  * Discount floor bound: a quoted/discounted unit price can never go below
- * unit_cost * (1 + MIN_MARGIN_PCT). This is the one rule the spec calls out
- * as un-overridable - no prompt, buyer pressure, or "manager approval" claim
- * can move this number, because it is computed here, not asserted by the LLM.
+ * unit_cost * (1 + minMarginPct). This is the one rule the spec calls out
+ * as un-overridable BY THE BUYER - no prompt, buyer pressure, or "manager
+ * approval" claim can move this number, because it is computed here, not
+ * asserted by the LLM. The margin itself can differ per buyer (a merchant-
+ * negotiated term set via routes/merchant.ts, resolved by the caller in
+ * actions.ts and passed in here) - but that is a merchant-side decision made
+ * entirely outside the buyer's chat session, never something the buyer sets.
  */
-export function checkDiscountFloor(product: Product, proposedUnitPrice: number): BoundCheck {
-  const floorPrice = round2(product.unitCost * (1 + BOUND_CONFIG.MIN_MARGIN_PCT));
+export function checkDiscountFloor(
+  product: Product,
+  proposedUnitPrice: number,
+  minMarginPct: number = BOUND_CONFIG.MIN_MARGIN_PCT,
+): BoundCheck {
+  const floorPrice = round2(product.unitCost * (1 + minMarginPct));
   const pass = proposedUnitPrice >= floorPrice;
   return {
     pass,
     reason: pass
-      ? `Proposed price ₹${proposedUnitPrice} for ${product.name} is at or above the floor price ₹${floorPrice} (unit cost ₹${product.unitCost} + ${BOUND_CONFIG.MIN_MARGIN_PCT * 100}% minimum margin).`
-      : `Proposed price ₹${proposedUnitPrice} for ${product.name} is below the floor price ₹${floorPrice} (unit cost ₹${product.unitCost} + ${BOUND_CONFIG.MIN_MARGIN_PCT * 100}% minimum margin required). Refused - this bound cannot be overridden regardless of buyer justification.`,
-    data: { floorPrice, unitCost: product.unitCost, minMarginPct: BOUND_CONFIG.MIN_MARGIN_PCT, proposedUnitPrice },
+      ? `Proposed price ₹${proposedUnitPrice} for ${product.name} is at or above the floor price ₹${floorPrice} (unit cost ₹${product.unitCost} + ${minMarginPct * 100}% minimum margin).`
+      : `Proposed price ₹${proposedUnitPrice} for ${product.name} is below the floor price ₹${floorPrice} (unit cost ₹${product.unitCost} + ${minMarginPct * 100}% minimum margin required). Refused - this bound cannot be overridden regardless of buyer justification.`,
+    data: { floorPrice, unitCost: product.unitCost, minMarginPct, proposedUnitPrice },
   };
 }
 
