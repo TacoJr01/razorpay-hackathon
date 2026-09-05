@@ -1,5 +1,7 @@
 # Hisaab
 
+**Live demo:** [hisaab-b2b.vercel.app](https://hisaab-b2b.vercel.app) · Buyer chat at `/demo`, merchant admin at `/merchant`
+
 A conversational agent for a synthetic B2B bulk-trade distributor (industrial
 hardware + technical textiles - no real company, brand, or client data). It
 answers catalog questions, recommends cross-sell bundles, negotiates price
