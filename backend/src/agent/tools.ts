@@ -93,7 +93,7 @@ export function buildTools(buyerId: string) {
 
     checkOrderGate: tool({
       description:
-        'Gate-check step: run only after checkOrderBounds reports every line passing. Re-validates bounds itself, computes the order total, and decides whether it exceeds this specific buyer\'s auto-approval limits (order value, per-line quantity - both computed from that buyer\'s own order history via trust.ts, not a flat number - and separately, whether a GSTIN is required and missing for a large order). If gateTriggered is true, you MUST stop and tell the buyer you are waiting for their explicit confirmation in the UI - do NOT call placeOrder in that case, it will be refused. If gateTriggered is false, you may call placeOrder with the returned draftId.',
+        'Gate-check step: run only after checkOrderBounds reports every line passing. Re-validates bounds itself, computes the order total, and decides whether it exceeds this specific buyer\'s auto-approval limits (order value, per-line quantity - both computed from that buyer\'s own order history via trust.ts, not a flat number - and separately, whether a GSTIN is required and missing for a large order). If gateTriggered is true, you MUST stop and tell the buyer their order has been sent to the merchant for review, and they will see the outcome once it is resolved - do NOT call placeOrder in that case, it will be refused, and do not imply the buyer can confirm it themselves. If gateTriggered is false, you may call placeOrder with the returned draftId.',
       inputSchema: z.object({
         lines: z.array(
           z.object({
@@ -121,7 +121,7 @@ export function buildTools(buyerId: string) {
 
     placeOrder: tool({
       description:
-        'Act step: place the order for a draft that has already passed checkOrderGate with gateTriggered=false. This calls the real Razorpay test-mode Orders API. If the draft was gated and not yet confirmed by the buyer in the UI, this call is refused in code (not just discouraged) - do not attempt it for gated orders.',
+        'Act step: place the order for a draft that has already passed checkOrderGate with gateTriggered=false. This calls the real Razorpay test-mode Orders API. If the draft was gated and not yet approved by a merchant, this call is refused in code (not just discouraged) - do not attempt it for gated orders.',
       inputSchema: z.object({ draftId: z.string() }),
       execute: async ({ draftId }) => executePlacement(draftId),
     }),

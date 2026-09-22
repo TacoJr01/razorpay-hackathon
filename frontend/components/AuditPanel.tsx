@@ -10,8 +10,8 @@ const ACTION_LABELS: Record<string, string> = {
   order_gate_check: 'Gate check',
   order_placement_blocked: 'Order blocked',
   order_placed: 'Order placed',
-  order_declined_by_user: 'Order declined',
-  order_confirmed_by_user: 'Order confirmed',
+  order_approved_by_merchant: 'Order approved (merchant)',
+  order_rejected_by_merchant: 'Order rejected (merchant)',
   buyer_trust_computed: 'Trust limit computed',
   gstin_provided: 'GSTIN verified',
   catalog_lookup: 'Catalog lookup',
@@ -99,7 +99,7 @@ export function AuditPanel() {
               )}
               {e.gateTriggered && (
                 <span className="pill gate">
-                  gate {e.gateConfirmed === null ? 'pending' : e.gateConfirmed ? 'confirmed' : 'declined'}
+                  gate {e.gateConfirmed === null ? 'pending' : e.gateConfirmed ? 'approved' : 'rejected'}
                 </span>
               )}
             </div>

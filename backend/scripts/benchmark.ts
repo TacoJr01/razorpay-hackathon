@@ -16,6 +16,8 @@ import {
   checkOrderBounds,
   checkOrderGate,
   executePlacement,
+  approveDraft,
+  rejectDraft,
 } from '../src/agent/actions.js';
 import { computeBuyerLimits } from '../src/agent/trust.js';
 import { setBuyerGSTIN } from '../src/agent/buyerProfile.js';
@@ -91,11 +93,53 @@ scenario('gating', 'same order WITH a valid GSTIN on file does not gate on that 
   const r = await checkOrderGate([{ productId: 'BRG-105', quantity: 100 }], buyerId);
   return r.allPass && !r.gate!.reason.includes('GSTIN');
 });
-scenario('gating', 'placing a gated order without confirmation is refused', async () => {
+scenario('gating', 'placing a gated order without merchant approval is refused', async () => {
   const r = await checkOrderGate([{ productId: 'BRG-103', quantity: 600 }], 'bench-gate-block');
   if (!r.allPass || !r.draft) return false;
   const placed = await executePlacement(r.draft.id);
   return placed.success === false && placed.reason.startsWith('GATE_PENDING');
+});
+
+// ---------------------------------------------------------------------------
+// Category: maker-checker - a gated order can only be resolved by an
+// authenticated merchant identity, never the buyer re-confirming it
+// themselves. See routes/merchant.ts's /approvals routes and
+// agent/actions.ts's approveDraft/rejectDraft.
+// ---------------------------------------------------------------------------
+scenario('maker_checker', 'merchant approval unblocks placement', async () => {
+  const r = await checkOrderGate([{ productId: 'BRG-103', quantity: 600 }], 'bench-mc-approve');
+  if (!r.allPass || !r.draft) return false;
+  const outcome = await approveDraft(r.draft.id, 'merchant@example.com');
+  if (!outcome.success) return false;
+  const placed = await executePlacement(r.draft.id);
+  return placed.success === true;
+});
+scenario('maker_checker', 'merchant rejection blocks placement permanently', async () => {
+  const r = await checkOrderGate([{ productId: 'BRG-103', quantity: 600 }], 'bench-mc-reject');
+  if (!r.allPass || !r.draft) return false;
+  await rejectDraft(r.draft.id, 'merchant@example.com');
+  const placed = await executePlacement(r.draft.id);
+  return placed.success === false;
+});
+scenario('maker_checker', 'a draft cannot be resolved twice (double-approve is refused)', async () => {
+  const r = await checkOrderGate([{ productId: 'BRG-103', quantity: 600 }], 'bench-mc-double');
+  if (!r.allPass || !r.draft) return false;
+  const first = await approveDraft(r.draft.id, 'merchant@example.com');
+  const second = await approveDraft(r.draft.id, 'merchant@example.com');
+  return first.success === true && second.success === false && second.reason === 'already_resolved';
+});
+scenario('maker_checker', 'approving a draft after the 15-minute quote window still succeeds (expiry is refreshed on approval)', async () => {
+  const r = await checkOrderGate([{ productId: 'BRG-103', quantity: 600 }], 'bench-mc-stale-ok');
+  if (!r.allPass || !r.draft) return false;
+  const raw = await redis.get(`b2b-agent:draft:${r.draft.id}`);
+  if (!raw) return false;
+  const record = JSON.parse(raw);
+  record.expiresAt = new Date(Date.now() - 60_000).toISOString();
+  await redis.set(`b2b-agent:draft:${r.draft.id}`, JSON.stringify(record), 'EX', 86_400);
+  const outcome = await approveDraft(r.draft.id, 'merchant@example.com');
+  if (!outcome.success) return false;
+  const placed = await executePlacement(r.draft.id);
+  return placed.success === true;
 });
 
 // ---------------------------------------------------------------------------

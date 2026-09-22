@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { AgentStreamEvent, OrderDraft } from '@b2b-agent/shared';
-import { confirmOrder, declineOrder, getSessionId, streamChat } from '../lib/api';
+import { fetchOrderDraft, getSessionId, streamChat } from '../lib/api';
 
 interface TraceStep {
   name: string;
@@ -14,7 +14,7 @@ interface TraceStep {
 type TurnItem =
   | { type: 'text'; text: string }
   | { type: 'trace'; steps: TraceStep[] }
-  | { type: 'gate'; gateId: string; reason: string; orderDraft: OrderDraft; status: 'pending' | 'confirmed' | 'declined' };
+  | { type: 'gate'; gateId: string; reason: string; orderDraft: OrderDraft; status: 'pending_review' | 'approved' | 'rejected' };
 
 type TimelineEntry = { role: 'user'; text: string } | { role: 'assistant'; items: TurnItem[] };
 
@@ -69,6 +69,8 @@ export function ChatPanel({ onTurnComplete }: { onTurnComplete?: () => void } = 
   // setCurrent updater (React 18 strict mode double-invokes updater functions
   // in dev, which would double-apply that side effect).
   const currentRef = useRef<TurnItem[]>([]);
+  // gateIds still awaiting a merchant decision - polled below until resolved.
+  const pendingGateIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     sessionIdRef.current = getSessionId();
@@ -77,6 +79,37 @@ export function ChatPanel({ onTurnComplete }: { onTurnComplete?: () => void } = 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [timeline, current]);
+
+  // Gated orders are resolved by a merchant in a separate session, not by
+  // this buyer clicking a button - poll each pending gate until it's decided.
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      const ids = [...pendingGateIdsRef.current];
+      for (const id of ids) {
+        try {
+          const status = await fetchOrderDraft(id);
+          if (status.confirmed !== null) {
+            pendingGateIdsRef.current.delete(id);
+            resolveGateEverywhere(id, status.confirmed);
+          }
+        } catch {
+          // transient network error - retry on the next tick
+        }
+      }
+    }, 4000);
+    return () => clearInterval(interval);
+  }, []);
+
+  function resolveGateEverywhere(gateId: string, confirmed: boolean) {
+    const status: 'approved' | 'rejected' = confirmed ? 'approved' : 'rejected';
+    const apply = (items: TurnItem[]) =>
+      items.map((item) => (item.type === 'gate' && item.gateId === gateId ? { ...item, status } : item));
+
+    if (currentRef.current.some((item) => item.type === 'gate' && item.gateId === gateId)) {
+      mutateCurrent(apply);
+    }
+    setTimeline((prev) => prev.map((entry) => (entry.role === 'assistant' ? { ...entry, items: apply(entry.items) } : entry)));
+  }
 
   function mutateCurrent(mutator: (items: TurnItem[]) => TurnItem[]) {
     const next = mutator(currentRef.current);
@@ -120,9 +153,10 @@ export function ChatPanel({ onTurnComplete }: { onTurnComplete?: () => void } = 
         });
         break;
       case 'gate':
+        pendingGateIdsRef.current.add(event.gateId);
         mutateCurrent((items) => [
           ...items,
-          { type: 'gate', gateId: event.gateId, reason: event.reason, orderDraft: event.orderDraft, status: 'pending' },
+          { type: 'gate', gateId: event.gateId, reason: event.reason, orderDraft: event.orderDraft, status: 'pending_review' },
         ]);
         break;
       case 'error':
@@ -154,40 +188,7 @@ export function ChatPanel({ onTurnComplete }: { onTurnComplete?: () => void } = 
     }
   }
 
-  async function handleGateAction(turnIndex: number | null, gateId: string, action: 'confirm' | 'decline') {
-    const apply = (items: TurnItem[]) =>
-      items.map((item) =>
-        item.type === 'gate' && item.gateId === gateId ? { ...item, status: action === 'confirm' ? ('confirmed' as const) : ('declined' as const) } : item,
-      );
-
-    if (turnIndex === null) {
-      mutateCurrent(apply);
-    } else {
-      setTimeline((prev) =>
-        prev.map((entry, i) => (i === turnIndex && entry.role === 'assistant' ? { ...entry, items: apply(entry.items) } : entry)),
-      );
-    }
-
-    const result = action === 'confirm' ? await confirmOrder(gateId) : await declineOrder(gateId);
-    const summary =
-      action === 'confirm'
-        ? result.success
-          ? `Confirmed. Razorpay test order ${result.razorpayOrder?.id} created for ₹${result.draft?.total}.`
-          : `Confirmation recorded, but placement failed: ${result.reason}`
-        : `Order declined.`;
-
-    const note: TurnItem = { type: 'text', text: summary };
-    if (turnIndex === null) {
-      mutateCurrent((items) => [...items, note]);
-    } else {
-      setTimeline((prev) =>
-        prev.map((entry, i) => (i === turnIndex && entry.role === 'assistant' ? { ...entry, items: [...entry.items, note] } : entry)),
-      );
-    }
-    onTurnComplete?.();
-  }
-
-  function renderTurnItems(items: TurnItem[], turnIndex: number | null) {
+  function renderTurnItems(items: TurnItem[]) {
     return items.map((item, idx) => {
       if (item.type === 'text') {
         if (!item.text.trim()) return null;
@@ -203,7 +204,7 @@ export function ChatPanel({ onTurnComplete }: { onTurnComplete?: () => void } = 
       // gate
       return (
         <div className="gate-card" key={idx}>
-          <h3>Confirmation required</h3>
+          <h3>Merchant review required</h3>
           <div>{item.reason}</div>
           <table>
             <tbody>
@@ -225,19 +226,14 @@ export function ChatPanel({ onTurnComplete }: { onTurnComplete?: () => void } = 
               </tr>
             </tbody>
           </table>
-          {item.status === 'pending' ? (
-            <div className="gate-actions">
-              <button className="btn primary" onClick={() => handleGateAction(turnIndex, item.gateId, 'confirm')}>
-                Confirm & place order
-              </button>
-              <button className="btn danger" onClick={() => handleGateAction(turnIndex, item.gateId, 'decline')}>
-                Decline
-              </button>
-            </div>
+          {item.status === 'pending_review' ? (
+            <span className="pill gate" style={{ marginTop: 8 }}>
+              Awaiting merchant review
+            </span>
           ) : (
-            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-dim)' }}>
-              {item.status === 'confirmed' ? '✓ confirmed' : '✗ declined'}
-            </div>
+            <span className={`pill ${item.status === 'approved' ? 'pass' : 'fail'}`} style={{ marginTop: 8 }}>
+              {item.status === 'approved' ? '✓ Approved by merchant' : '✗ Rejected by merchant'}
+            </span>
           )}
         </div>
       );
@@ -262,10 +258,10 @@ export function ChatPanel({ onTurnComplete }: { onTurnComplete?: () => void } = 
               <div className="bubble">{entry.text}</div>
             </div>
           ) : (
-            <div key={i}>{renderTurnItems(entry.items, i)}</div>
+            <div key={i}>{renderTurnItems(entry.items)}</div>
           ),
         )}
-        {current && <div>{renderTurnItems(current, null)}</div>}
+        {current && <div>{renderTurnItems(current)}</div>}
         {sending && (!current || current.length === 0) && (
           <div className="trace">
             <ul className="trace-steps">

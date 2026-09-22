@@ -837,6 +837,80 @@ button {
   font-size: 12.5px;
 }
 
+.merchant-nav {
+  display: flex;
+  gap: 4px;
+  margin-left: 24px;
+  margin-right: auto;
+}
+
+.merchant-nav-link {
+  padding: 6px 12px;
+  border-radius: 7px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-dim);
+  text-decoration: none;
+}
+
+.merchant-nav-link:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.merchant-nav-link.active {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.merchant-defaults-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.merchant-filter-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.merchant-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.merchant-stat-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  padding: 16px 18px;
+}
+
+.merchant-stat-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.merchant-stat-value {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.merchant-stat-sub {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  margin-top: 6px;
+}
+
 
 @media (max-width: 700px) {
   .pill-line {

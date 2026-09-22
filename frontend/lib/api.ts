@@ -1,4 +1,4 @@
-import type { AgentStreamEvent, AuditEntry, BuyerLimits, ChainVerificationResult, PublicProduct } from '@b2b-agent/shared';
+import type { AgentStreamEvent, AuditEntry, BuyerLimits, ChainVerificationResult, Order, PublicProduct } from '@b2b-agent/shared';
 
 export const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:4000';
 
@@ -86,18 +86,31 @@ export async function fetchProducts(): Promise<PublicProduct[]> {
   return res.json();
 }
 
-export async function confirmOrder(draftId: string) {
-  const res = await fetch(`${BACKEND_URL}/orders/${draftId}/confirm`, { method: 'POST' });
-  return res.json();
+/** Polled by the buyer's chat UI while a gated order sits in merchant review. */
+export interface DraftStatus {
+  id: string;
+  confirmed: boolean | null;
+  executed: boolean;
+  total: number;
 }
 
-export async function declineOrder(draftId: string) {
-  const res = await fetch(`${BACKEND_URL}/orders/${draftId}/decline`, { method: 'POST' });
+export async function fetchOrderDraft(draftId: string): Promise<DraftStatus> {
+  const res = await fetch(`${BACKEND_URL}/orders/${draftId}`);
   return res.json();
 }
 
 export async function fetchBuyerLimits(buyerId: string): Promise<BuyerLimits> {
   const res = await fetch(`${BACKEND_URL}/buyers/${buyerId}/limits`);
+  return res.json();
+}
+
+export async function fetchBuyerOrders(buyerId: string): Promise<Order[]> {
+  const res = await fetch(`${BACKEND_URL}/buyers/${buyerId}/orders`);
+  return res.json();
+}
+
+export async function fetchBuyerGSTIN(buyerId: string): Promise<{ gstin: string | null }> {
+  const res = await fetch(`${BACKEND_URL}/buyers/${buyerId}/gstin`);
   return res.json();
 }
 
@@ -196,4 +209,94 @@ export async function setMerchantOverride(
   });
   if (!res.ok) return { ok: false, status: res.status };
   return { ok: true };
+}
+
+export async function fetchMerchantOrders(
+  auth: MerchantAuth,
+): Promise<{ ok: true; data: Order[] } | { ok: false; status: number }> {
+  const res = await fetch(`${BACKEND_URL}/merchant/orders`, { headers: merchantHeaders(auth) });
+  if (!res.ok) return { ok: false, status: res.status };
+  return { ok: true, data: await res.json() };
+}
+
+export interface MerchantAnalytics {
+  totalOrders: number;
+  totalValue: number;
+  avgOrderValue: number;
+  topBuyers: { buyerId: string; orders: number; value: number }[];
+  gating: { gatedCount: number; autoApprovedCount: number; gateRate: number };
+  discountFloor: { checked: number; refused: number };
+}
+
+export async function fetchMerchantAnalytics(
+  auth: MerchantAuth,
+): Promise<{ ok: true; data: MerchantAnalytics } | { ok: false; status: number }> {
+  const res = await fetch(`${BACKEND_URL}/merchant/analytics`, { headers: merchantHeaders(auth) });
+  if (!res.ok) return { ok: false, status: res.status };
+  return { ok: true, data: await res.json() };
+}
+
+export async function fetchMerchantAudit(
+  auth: MerchantAuth,
+  filters: { actionType?: string; boundChecked?: string; boundResult?: string } = {},
+): Promise<{ ok: true; data: AuditEntry[] } | { ok: false; status: number }> {
+  const params = new URLSearchParams(Object.entries(filters).filter(([, v]) => !!v) as [string, string][]);
+  const res = await fetch(`${BACKEND_URL}/audit?${params.toString()}`, { headers: merchantHeaders(auth) });
+  if (!res.ok) return { ok: false, status: res.status };
+  return { ok: true, data: await res.json() };
+}
+
+export async function updateMerchantProduct(
+  auth: MerchantAuth,
+  productId: string,
+  fields: { unitPrice?: number; unitCost?: number; stockQty?: number; moq?: number },
+): Promise<{ ok: true; data: PublicProduct } | { ok: false; status: number }> {
+  const res = await fetch(`${BACKEND_URL}/merchant/products/${productId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...merchantHeaders(auth) },
+    body: JSON.stringify(fields),
+  });
+  if (!res.ok) return { ok: false, status: res.status };
+  return { ok: true, data: await res.json() };
+}
+
+// ---------------------------------------------------------------------------
+// Maker-checker: gated orders sit here until a merchant approves or rejects
+// them - this replaces the old buyer-self-confirm flow entirely.
+// ---------------------------------------------------------------------------
+
+export interface PendingApproval {
+  draftId: string;
+  buyerId: string;
+  items: Order['items'];
+  total: number;
+  gateReason: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export async function fetchMerchantApprovals(
+  auth: MerchantAuth,
+): Promise<{ ok: true; data: PendingApproval[] } | { ok: false; status: number }> {
+  const res = await fetch(`${BACKEND_URL}/merchant/approvals`, { headers: merchantHeaders(auth) });
+  if (!res.ok) return { ok: false, status: res.status };
+  const body = await res.json();
+  return { ok: true, data: body.pending };
+}
+
+export async function approveMerchantDraft(auth: MerchantAuth, draftId: string) {
+  const res = await fetch(`${BACKEND_URL}/merchant/approvals/${draftId}/approve`, {
+    method: 'POST',
+    headers: merchantHeaders(auth),
+  });
+  return res.json();
+}
+
+export async function rejectMerchantDraft(auth: MerchantAuth, draftId: string, reason?: string) {
+  const res = await fetch(`${BACKEND_URL}/merchant/approvals/${draftId}/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...merchantHeaders(auth) },
+    body: JSON.stringify({ reason }),
+  });
+  return res.json();
 }

@@ -4,7 +4,7 @@ import { orders } from '../db/schema.js';
 import { appendAuditEntry } from '../audit/auditService.js';
 import { checkCatalogScope, checkDiscountFloor, checkMOQ, checkStock } from './bounds.js';
 import { checkGate } from './gates.js';
-import { createDraft, getDraft, markExecuted, setConfirmation, type OrderDraftRecord } from './orderDrafts.js';
+import { createDraft, getDraft, markExecuted, resolveDraft, type OrderDraftRecord } from './orderDrafts.js';
 import { createRazorpayOrder } from '../razorpay/client.js';
 import { computeBuyerLimits } from './trust.js';
 import { getBuyerGSTIN } from './buyerProfile.js';
@@ -275,21 +275,21 @@ export async function executePlacement(draftId: string) {
   if (draft.gateTriggered && draft.confirmed !== true) {
     // This is the hard enforcement point for the gate: even if the LLM (or
     // an adversarial prompt) calls the placeOrder tool directly, execution
-    // is refused here in code unless a real confirm action has been recorded.
+    // is refused here in code unless a real merchant approval has been recorded.
     appendAuditEntry({
       actionType: 'order_placement_blocked',
-      description: `Refused to place order ${draftId}: total ₹${draft.total} requires explicit buyer confirmation and none has been recorded yet.`,
+      description: `Refused to place order ${draftId}: total ₹${draft.total} requires merchant review and none has been recorded yet.`,
       boundChecked: 'none',
       boundResult: 'n/a',
       gateTriggered: true,
       gateConfirmed: draft.confirmed,
       metadata: { draftId },
     });
-    return { success: false as const, reason: 'GATE_PENDING: this order requires explicit buyer confirmation before it can be placed.' };
+    return { success: false as const, reason: 'GATE_PENDING: this order requires merchant review before it can be placed.' };
   }
 
   if (draft.confirmed === false) {
-    return { success: false as const, reason: `Order draft ${draftId} was declined by the buyer.` };
+    return { success: false as const, reason: `Order draft ${draftId} was rejected by the merchant.` };
   }
 
   // Quote expiry: a draft's prices were only ever validated against the
@@ -376,36 +376,47 @@ export async function executePlacement(draftId: string) {
   return { success: true as const, draft, razorpayOrder };
 }
 
-export async function declineDraft(draftId: string) {
-  const draft = await setConfirmation(draftId, false);
-  if (!draft) return { success: false as const, reason: `No such order draft: ${draftId}.` };
+/**
+ * A merchant's approve/reject decision on a gated draft - this replaces
+ * buyer self-confirm entirely. The approver identity (a merchant username or
+ * Google email, resolved by the authenticated /merchant route) is recorded
+ * in this entry's metadata rather than a new audit_entries column: metadata
+ * is already part of the hashed payload every other entry uses, so this
+ * needs no schema change and doesn't risk invalidating hashes already
+ * computed for existing rows (adding a new top-level column to the hash
+ * payload would change the JSON for every pre-existing entry, even with a
+ * null default, because key presence changes JSON.stringify's output).
+ */
+export async function approveDraft(draftId: string, approverId: string) {
+  const outcome = await resolveDraft(draftId, true, approverId);
+  if (!outcome.success) return outcome;
 
   appendAuditEntry({
-    actionType: 'order_declined_by_user',
-    description: `Buyer declined order ${draftId} (₹${draft.total}) after the confirmation gate.`,
-    boundChecked: 'none',
-    boundResult: 'n/a',
-    gateTriggered: true,
-    gateConfirmed: false,
-    metadata: { draftId, total: draft.total },
-  });
-
-  return { success: true as const, draft };
-}
-
-export async function confirmDraft(draftId: string) {
-  const draft = await setConfirmation(draftId, true);
-  if (!draft) return undefined;
-
-  appendAuditEntry({
-    actionType: 'order_confirmed_by_user',
-    description: `Buyer explicitly confirmed gated order ${draftId} (₹${draft.total}) in the UI.`,
+    actionType: 'order_approved_by_merchant',
+    description: `Merchant ${approverId} approved gated order ${draftId} (₹${outcome.draft.total}) after review.`,
     boundChecked: 'none',
     boundResult: 'n/a',
     gateTriggered: true,
     gateConfirmed: true,
-    metadata: { draftId, total: draft.total },
+    metadata: { draftId, total: outcome.draft.total, approverId },
   });
 
-  return draft;
+  return outcome;
+}
+
+export async function rejectDraft(draftId: string, approverId: string, reason?: string) {
+  const outcome = await resolveDraft(draftId, false, approverId);
+  if (!outcome.success) return outcome;
+
+  appendAuditEntry({
+    actionType: 'order_rejected_by_merchant',
+    description: `Merchant ${approverId} rejected gated order ${draftId} (₹${outcome.draft.total})${reason ? `: ${reason}` : '.'}`,
+    boundChecked: 'none',
+    boundResult: 'n/a',
+    gateTriggered: true,
+    gateConfirmed: false,
+    metadata: { draftId, total: outcome.draft.total, approverId, reason: reason ?? null },
+  });
+
+  return outcome;
 }

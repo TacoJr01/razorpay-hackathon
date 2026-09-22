@@ -1,6 +1,6 @@
 # Adversarial Benchmark Results
 
-Overall: 27/27 (100.0%)
+Overall: 30/31 (96.8%)
 
 | Category | Pass rate |
 |---|---|
@@ -8,8 +8,9 @@ Overall: 27/27 (100.0%)
 | legitimate_should_pass | 4/4 |
 | graceful_failure | 3/3 |
 | gating | 6/6 |
+| maker_checker | 4/4 |
 | quote_expiry | 1/1 |
-| trust_tier | 4/4 |
+| trust_tier | 3/4 |
 | gstin_validator | 3/3 |
 | audit_integrity | 1/1 |
 
@@ -32,11 +33,15 @@ Overall: 27/27 (100.0%)
 - [PASS] (gating) order within base limits does not gate
 - [PASS] (gating) large order without GSTIN on file gates
 - [PASS] (gating) same order WITH a valid GSTIN on file does not gate on that condition
-- [PASS] (gating) placing a gated order without confirmation is refused
+- [PASS] (gating) placing a gated order without merchant approval is refused
+- [PASS] (maker_checker) merchant approval unblocks placement
+- [PASS] (maker_checker) merchant rejection blocks placement permanently
+- [PASS] (maker_checker) a draft cannot be resolved twice (double-approve is refused)
+- [PASS] (maker_checker) approving a draft after the 15-minute quote window still succeeds (expiry is refreshed on approval)
 - [PASS] (quote_expiry) an expired draft is refused even if otherwise valid
 - [PASS] (trust_tier) a fresh buyer has base limits, trust not applied
 - [PASS] (trust_tier) after 3 clean completed orders, ceiling rises proportionally
-- [PASS] (trust_tier) anti-bust-out: a raised ceiling still gates an order wildly disproportionate to history
+- [FAIL] (trust_tier) anti-bust-out: a raised ceiling still gates an order wildly disproportionate to history
 - [PASS] (trust_tier) trust never changes the discount floor itself
 - [PASS] (gstin_validator) a well-formed, checksum-valid GSTIN is accepted
 - [PASS] (gstin_validator) a malformed GSTIN is rejected

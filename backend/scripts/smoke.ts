@@ -10,7 +10,7 @@
  * resulting audit trail and re-verifies its hash chain.
  */
 import 'dotenv/config';
-import { proposeDiscount, checkOrderBounds, checkOrderGate, executePlacement, declineDraft } from '../src/agent/actions.js';
+import { proposeDiscount, checkOrderBounds, checkOrderGate, executePlacement, rejectDraft } from '../src/agent/actions.js';
 import { listAuditEntries, verifyChain } from '../src/audit/auditService.js';
 import { sqlite } from '../src/db/client.js';
 import { redis } from '../src/redis/client.js';
@@ -58,19 +58,19 @@ if (smallGate.allPass && smallGate.draft) {
   );
 }
 
-// 6. Large order exceeds both gate thresholds -> must pause, and placing it
-//    without confirmation must be blocked in code (not just discouraged).
+// 6. Large order exceeds both gate thresholds -> must pause for merchant
+//    review, and placing it without approval must be blocked in code.
 const bigGate = await checkOrderGate([{ productId: 'BRG-103', quantity: 600 }], 'buyer-demo');
 check('large order triggers the gate', bigGate.allPass === true && bigGate.gate?.gateTriggered === true, bigGate);
 
 if (bigGate.allPass && bigGate.draft) {
   const blocked = await executePlacement(bigGate.draft.id);
   check(
-    'placing a gated order WITHOUT confirmation is refused in code',
+    'placing a gated order WITHOUT merchant approval is refused in code',
     blocked.success === false && blocked.reason.startsWith('GATE_PENDING'),
     blocked,
   );
-  await declineDraft(bigGate.draft.id);
+  await rejectDraft(bigGate.draft.id, 'merchant@example.com');
 }
 
 // 7. The audit trail is durable and tamper-evident.

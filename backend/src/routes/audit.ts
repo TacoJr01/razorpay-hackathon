@@ -5,8 +5,22 @@ import type { AuditEntry } from '@b2b-agent/shared';
 
 export const auditRoute = new Hono();
 
+/**
+ * Optional filters (actionType, boundChecked, boundResult) for the merchant's
+ * full audit explorer - the live /stream feed stays filter-free and
+ * append-only, this is the queryable view over the same data.
+ */
 auditRoute.get('/', (c) => {
-  return c.json(listAuditEntries());
+  const actionType = c.req.query('actionType');
+  const boundChecked = c.req.query('boundChecked');
+  const boundResult = c.req.query('boundResult');
+
+  let entries = listAuditEntries();
+  if (actionType) entries = entries.filter((e) => e.actionType === actionType);
+  if (boundChecked) entries = entries.filter((e) => e.boundChecked === boundChecked);
+  if (boundResult) entries = entries.filter((e) => e.boundResult === boundResult);
+
+  return c.json(entries);
 });
 
 auditRoute.get('/verify', (c) => {
