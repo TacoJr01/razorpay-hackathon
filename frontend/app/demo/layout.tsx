@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Moon, Sun } from 'lucide-react';
+import { ChatSessionProvider } from '../../lib/chatSession';
 
 type Theme = 'light' | 'dark';
 
@@ -33,33 +34,35 @@ export default function DemoLayout({ children }: { children: React.ReactNode }) 
   }
 
   return (
-    <div className="app-shell">
-      <div className="topbar">
-        <Link href="/" className="topbar-brand">
-          <h1>Hisaab — Demo</h1>
-        </Link>
-        <nav className="merchant-nav">
-          {NAV_LINKS.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              className={`merchant-nav-link${pathname === link.href ? ' active' : ''}`}
-            >
-              {link.label}
-            </Link>
-          ))}
-        </nav>
-        <button
-          type="button"
-          className="theme-toggle"
-          onClick={toggleTheme}
-          title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
-          aria-label="Toggle theme"
-        >
-          {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
-        </button>
+    <ChatSessionProvider>
+      <div className="app-shell">
+        <div className="topbar">
+          <Link href="/" className="topbar-brand">
+            <h1>Hisaab — Demo</h1>
+          </Link>
+          <nav className="merchant-nav">
+            {NAV_LINKS.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className={`merchant-nav-link${pathname === link.href ? ' active' : ''}`}
+              >
+                {link.label}
+              </Link>
+            ))}
+          </nav>
+          <button
+            type="button"
+            className="theme-toggle"
+            onClick={toggleTheme}
+            title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+            aria-label="Toggle theme"
+          >
+            {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
+          </button>
+        </div>
+        {children}
       </div>
-      {children}
-    </div>
+    </ChatSessionProvider>
   );
 }
